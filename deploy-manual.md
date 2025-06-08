@@ -82,7 +82,7 @@ After deploying the functions, you need to set environment variables in your Sup
 3. Add these environment variables:
 
 ```
-OPENAI_API_KEY=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
+OPENAI_API_KEY=
 ```
 
 ## Testing the Functions
