@@ -52,13 +52,14 @@ const NewsScreen = () => {
   const { stats, updateCurrentAffairsStats, loading: statsLoading } = useUserStats();
   
   // Game State
-  const [facts, setFacts] = useState<CurrentAffairsFact[]>([]);
+  const [facts, setFacts] = useState<CurrentAffairsFact[]>([] );
   const [currentIndex, setCurrentIndex] = useState(0);
   const [showAnswer, setShowAnswer] = useState(false);
   const [selectedOption, setSelectedOption] = useState<string | null>(null);
   const [isCorrect, setIsCorrect] = useState<boolean | null>(null);
   const [loading, setLoading] = useState(true);
-  const [showExplanation, setShowExplanation] = useState(false);
+  // showExplanation will now control if the explanation *section* is rendered inline
+  const [showExplanation, setShowExplanation] = useState(false); 
   const [showCompletionModal, setShowCompletionModal] = useState(false);
   const [showGameOverModal, setShowGameOverModal] = useState(false);
   const [sessionStartTime] = useState(Date.now());
@@ -76,12 +77,11 @@ const NewsScreen = () => {
     masteredTopics: []
   });
 
-  // Animations
+  // Animations (still useful for heart/XP pulse, but not for fixed overlays)
   const heartScale = useRef(new RNAnimated.Value(1)).current;
   const xpPulse = useRef(new RNAnimated.Value(1)).current;
   const cardSlide = useRef(new RNAnimated.Value(0)).current;
   const streakGlow = useRef(new RNAnimated.Value(0)).current;
-  const explanationSheetAnim = useRef(new RNAnimated.Value(height)).current; // For bottom sheet
 
   // Check if user is admin
   const isAdmin = user?.email === 'ragularvind84@gmail.com';
@@ -379,23 +379,6 @@ const NewsScreen = () => {
     return () => glowAnimation.stop();
   }, []);
 
-  // Logic for showing/hiding explanation bottom sheet
-  useEffect(() => {
-    if (showExplanation) {
-      RNAnimated.timing(explanationSheetAnim, {
-        toValue: 0, // Slide up
-        duration: 300,
-        useNativeDriver: true,
-      }).start();
-    } else {
-      RNAnimated.timing(explanationSheetAnim, {
-        toValue: height, // Slide down
-        duration: 300,
-        useNativeDriver: true,
-      }).start();
-    }
-  }, [showExplanation]);
-
   const handleAnswer = (answer: string | boolean) => {
     const currentFact = facts[currentIndex];
     let correct = false;
@@ -424,9 +407,8 @@ const NewsScreen = () => {
       updateProgress(false);
     }
     
-    setTimeout(() => {
-      setShowExplanation(true);
-    }, 1000); // Small delay before explanation sheet appears
+    // Explanation will now be rendered inline
+    setShowExplanation(true); 
   };
 
   const animateSuccess = () => {
@@ -510,7 +492,7 @@ const NewsScreen = () => {
 
   const resetQuestionState = () => {
     setShowAnswer(false);
-    setShowExplanation(false); // Hide the explanation sheet for the next question
+    setShowExplanation(false); 
     setSelectedOption(null);
     setIsCorrect(null);
   };
@@ -807,24 +789,19 @@ const NewsScreen = () => {
           </LinearGradient>
         </RNAnimated.View>
 
-        {/* This bottom padding is crucial to ensure content scrolls above the tab bar and FABs */}
-        <View style={styles.scrollBottomSpacer} />
-      </ScrollView>
-
-      {/* Explanation Bottom Sheet (Moves from here to be absolutely positioned) */}
-      {showExplanation && (
-        <RNAnimated.View style={[styles.explanationBottomSheet, { transform: [{ translateY: explanationSheetAnim }] }]}>
-          <View style={styles.explanationHeader}>
-            <Text style={styles.explanationTitle}>
-              {isCorrect ? '🎉 Excellent!' : '📚 Learn More'}
-            </Text>
-            {isCorrect && (
-              <Text style={styles.xpGained}>
-                +{currentFact.difficulty === 'hard' ? 15 : currentFact.difficulty === 'medium' ? 10 : 5} XP
+        {/* Explanation Section (formerly a sticky bottom sheet, now inline) */}
+        {showExplanation && (
+          <View style={styles.explanationInlineContainer}>
+            <View style={styles.explanationHeader}>
+              <Text style={styles.explanationTitle}>
+                {isCorrect ? '🎉 Excellent!' : '📚 Learn More'}
               </Text>
-            )}
-          </View>
-          <ScrollView showsVerticalScrollIndicator={false}>
+              {isCorrect && (
+                <Text style={styles.xpGained}>
+                  +{currentFact.difficulty === 'hard' ? 15 : currentFact.difficulty === 'medium' ? 10 : 5} XP
+                </Text>
+              )}
+            </View>
             <Text style={styles.explanationText}>{currentFact.explanation}</Text>
             <View style={styles.keywordsContainer}>
               {currentFact.keywords.slice(0, 3).map((keyword, index) => (
@@ -834,11 +811,13 @@ const NewsScreen = () => {
               ))}
             </View>
             <Text style={styles.sourceText}>Source: {currentFact.source}</Text>
-          </ScrollView>
+          </View>
+        )}
 
-          {/* Continue Button moved to bottom sheet if explanation is shown */}
+        {/* Continue Button (formerly FAB, now inline) */}
+        {showAnswer && (
           <TouchableOpacity 
-            style={styles.continueButtonInSheet} 
+            style={styles.continueButtonInline} 
             onPress={() => {
               if (currentIndex === facts.length - 1) {
                 handleCompleteSession();
@@ -856,27 +835,38 @@ const NewsScreen = () => {
               </Text>
             </LinearGradient>
           </TouchableOpacity>
-        </RNAnimated.View>
-      )}
+        )}
 
-      {/* Floating Action Buttons */}
-      <View style={styles.floatingActionContainer}>
+        {/* Bottom Stats (always scrollable) */}
+        <View style={styles.bottomStats}>
+          <View style={styles.statItem}>
+            <Text style={styles.statValue}>{progress.accuracy}%</Text>
+            <Text style={styles.statLabel}>Accuracy</Text>
+          </View>
+          <View style={styles.statItem}>
+            <Text style={styles.statValue}>{progress.totalXP}</Text>
+            <Text style={styles.statLabel}>Total XP</Text>
+          </View>
+          <View style={styles.statItem}>
+            <Text style={styles.statValue}>{progress.masteredTopics.length}</Text>
+            <Text style={styles.statLabel}>Mastered</Text>
+          </View>
+        </View>
+        
+        {/* Admin Panel (now also part of scrollable content, if needed to be non-sticky) */}
         {isAdmin && (
-          <TouchableOpacity style={styles.adminFab} onPress={addTodaysQuestions}>
-            <Text style={styles.adminFabText}>➕</Text>
-          </TouchableOpacity>
+          <View style={styles.adminPanelInline}>
+            <TouchableOpacity style={styles.adminButton} onPress={addTodaysQuestions}>
+              <Text style={styles.adminButtonText}>➕ Add Questions</Text>
+            </TouchableOpacity>
+          </View>
         )}
-        {showAnswer && !showExplanation && ( // Only show continue FAB if answer is shown but explanation isn't, or manage differently
-          <TouchableOpacity 
-            style={styles.continueFab} 
-            onPress={() => setShowExplanation(true)} // Or directly next question if no explanation is needed
-          >
-            <Text style={styles.continueFabText}>Details</Text>
-          </TouchableOpacity>
-        )}
-      </View>
 
-      {/* Modals remain the same */}
+        {/* Final padding for the scroll view */}
+        <View style={styles.scrollBottomSpacer} />
+      </ScrollView>
+
+      {/* Modals remain absolutely positioned above everything */}
       {showCompletionModal && (
         <View style={styles.modalOverlay}>
           {/* ... Completion Modal content ... */}
@@ -920,89 +910,91 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
     textAlign: 'center',
   },
-  // --- New Info Section (formerly header) ---
+  // --- Info Section (now part of ScrollView) ---
   infoSection: {
     paddingHorizontal: 20,
-    paddingVertical: 15, // Adjusted padding
+    paddingVertical: 20, // More vertical padding for top content
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(255, 255, 255, 0.05)',
-    marginBottom: 20, // Space before the card
+    marginBottom: 20, // Space before the question card
   },
   infoTopRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 10,
+    alignItems: 'flex-start', // Align hearts/streak to the top of the section
+    marginBottom: 15,
   },
   infoLeft: {
     flex: 1,
+    paddingRight: 15, // Space between title and hearts
   },
   infoTitle: {
-    fontSize: 22, // Slightly larger than previous minimal header
+    fontSize: 26, // Larger title
     fontWeight: 'bold',
     color: '#FFFFFF',
+    marginBottom: 5,
   },
   infoDate: {
-    fontSize: 13,
+    fontSize: 14,
     color: '#8B5CF6',
-    marginTop: 2,
+    fontWeight: '600',
   },
   infoRight: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 15, // Space between hearts and streak
+    gap: 12,
   },
   heartsContainer: {
     flexDirection: 'row',
     gap: 4,
   },
   heart: {
-    width: 22, // Slightly larger hearts
-    height: 22,
-    borderRadius: 11,
+    width: 24, // Standard heart size
+    height: 24,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
   },
   heartText: {
     color: '#FFFFFF',
-    fontSize: 11,
+    fontSize: 12,
   },
   streakContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: 'rgba(255, 107, 53, 0.2)',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 14,
     shadowColor: '#FF6B35',
   },
   streakIcon: {
-    fontSize: 16,
+    fontSize: 18,
   },
   streakText: {
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: 'bold',
     color: '#FF6B35',
-    marginLeft: 4,
+    marginLeft: 5,
   },
 
   // --- XP Progress Bar ---
   xpProgress: {
-    marginBottom: 15, // Space below XP bar
+    marginBottom: 15,
   },
   xpBar: {
-    height: 5,
+    height: 6,
     backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    borderRadius: 2,
+    borderRadius: 3,
     overflow: 'hidden',
-    marginBottom: 5,
+    marginBottom: 6,
   },
   xpFill: {
     height: '100%',
-    borderRadius: 2,
+    borderRadius: 3,
   },
   xpText: {
-    fontSize: 11,
+    fontSize: 12,
     color: '#00FF88',
     fontWeight: '600',
   },
@@ -1012,14 +1004,14 @@ const styles = StyleSheet.create({
     marginTop: 10,
   },
   questionProgressText: {
-    fontSize: 14,
+    fontSize: 15,
     color: '#FFFFFF',
     fontWeight: '600',
-    marginBottom: 6,
+    marginBottom: 8,
     textAlign: 'center',
   },
   progressBar: {
-    height: 4,
+    height: 5,
     backgroundColor: 'rgba(255, 255, 255, 0.1)',
     borderRadius: 2,
     overflow: 'hidden',
@@ -1035,9 +1027,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   mainScrollContent: {
-    paddingTop: 0, // No fixed header, so content starts at the top of SafeAreaView
-    paddingHorizontal: 0, // No horizontal padding directly on contentContainer; infoSection/cardContainer handle it
-    paddingBottom: 120, // Space for bottom tab bar and FABs
+    paddingBottom: 120, // Space for bottom tab bar
   },
   cardContainer: {
     width: '90%', // Slightly less width than before for more padding on sides
@@ -1198,37 +1188,27 @@ const styles = StyleSheet.create({
   },
 
   scrollBottomSpacer: {
-    height: 120, // Spacer for content to scroll above FABs and tab bar
+    height: 120, // Spacer for content to scroll above tab bar (and potential inline admin button)
   },
 
-  // --- Explanation Bottom Sheet ---
-  explanationBottomSheet: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    height: '60%', // Adjust height as needed
-    backgroundColor: '#1A1A1B', // A slightly lighter dark for contrast
-    borderTopLeftRadius: 30,
-    borderTopRightRadius: 30,
-    paddingHorizontal: 25,
-    paddingTop: 20,
-    paddingBottom: Platform.OS === 'ios' ? 34 : 20, // Account for safe area
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -5 },
-    shadowOpacity: 0.25,
-    shadowRadius: 10,
-    elevation: 20,
-    zIndex: 999, // Ensure it's above other content but below modals
+  // --- Explanation Section (Inline) ---
+  explanationInlineContainer: {
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderRadius: 16,
+    padding: 20,
+    marginTop: 24, // Space from question card
+    marginHorizontal: 20, // Aligns with main content's horizontal padding
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
   },
   explanationHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 15,
+    marginBottom: 12,
   },
   explanationTitle: {
-    fontSize: 22,
+    fontSize: 18,
     fontWeight: 'bold',
     color: '#FFFFFF',
   },
@@ -1242,9 +1222,9 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   explanationText: {
-    fontSize: 15,
+    fontSize: 14,
     color: '#D1D5DB',
-    lineHeight: 22,
+    lineHeight: 20,
     marginBottom: 16,
   },
   keywordsContainer: {
@@ -1265,15 +1245,16 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   sourceText: {
-    fontSize: 11,
+    fontSize: 10,
     color: '#6B7280',
     fontStyle: 'italic',
-    marginTop: 8,
   },
-  continueButtonInSheet: { // Continue button specifically for the bottom sheet
+  continueButtonInline: { // Continue button specifically for inline flow
     marginTop: 20,
+    marginBottom: 20, // Add bottom margin to separate from next section
     borderRadius: 16,
     overflow: 'hidden',
+    marginHorizontal: 20, // Align with main content's horizontal padding
   },
   continueGradient: {
     padding: 16,
@@ -1285,52 +1266,54 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
   },
   
-  // --- Floating Action Buttons ---
-  floatingActionContainer: {
-    position: 'absolute',
-    bottom: Platform.OS === 'ios' ? 100 : 80, // Adjust based on tab bar height + desired margin
-    right: 20,
-    flexDirection: 'column', // Stack buttons vertically
-    gap: 15, // Space between FABs
-    zIndex: 1000, // Ensure FABs are above other elements but below modals
+  // --- Bottom Stats (always scrollable) ---
+  bottomStats: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    backgroundColor: 'rgba(255, 255, 255, 0.02)',
+    paddingVertical: 16,
+    borderRadius: 16,
+    marginHorizontal: 20, // Align with main content's horizontal padding
+    marginBottom: 20,
   },
-  adminFab: {
-    backgroundColor: '#FF6B35', // Admin color
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    justifyContent: 'center',
+  statItem: {
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 5,
-    elevation: 8,
   },
-  adminFabText: {
-    fontSize: 24,
-    color: '#FFFFFF',
+  statValue: {
+    fontSize: 18,
     fontWeight: 'bold',
+    color: '#FFFFFF',
   },
-  continueFab: {
-    backgroundColor: '#8B5CF6', // Main action color
-    paddingVertical: 12,
-    paddingHorizontal: 20,
+  statLabel: {
+    fontSize: 10,
+    color: '#9CA3AF',
+    marginTop: 2,
+  },
+  
+  // --- Admin Panel (now inline) ---
+  adminPanelInline: {
+    marginVertical: 20,
+    alignSelf: 'center', // Center the button
+    paddingHorizontal: 20, // Keep padding for touch area
+  },
+  adminButton: {
+    backgroundColor: '#FF6B35',
+    paddingHorizontal: 20, // More padding for larger button
+    paddingVertical: 14,
     borderRadius: 25,
-    shadowColor: '#000',
+    shadowColor: '#FF6B35',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
-    shadowRadius: 5,
+    shadowRadius: 8,
     elevation: 8,
-    alignItems: 'center',
   },
-  continueFabText: {
-    fontSize: 16,
+  adminButtonText: {
     color: '#FFFFFF',
     fontWeight: 'bold',
+    fontSize: 16,
   },
 
-  // --- Modals (Keep as is, or adjust padding/margins for new layout) ---
+  // --- Modals (remain absolutely positioned above everything) ---
   modalOverlay: {
     position: 'absolute',
     top: 0,
