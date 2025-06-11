@@ -11,6 +11,12 @@ interface UserStats {
   currentStreak: number;
   bestStreak: number;
   totalStudyTime: number;
+  // Current Affairs specific stats
+  currentAffairsStreak: number;
+  currentAffairsTotal: number;
+  currentAffairsCorrect: number;
+  currentAffairsPoints: number;
+  currentAffairsAccuracy: number;
 }
 
 export const useUserStats = () => {
@@ -23,6 +29,11 @@ export const useUserStats = () => {
     currentStreak: 0,
     bestStreak: 0,
     totalStudyTime: 0,
+    currentAffairsStreak: 0,
+    currentAffairsTotal: 0,
+    currentAffairsCorrect: 0,
+    currentAffairsPoints: 0,
+    currentAffairsAccuracy: 0,
   });
   
   // Separate loading states
@@ -97,6 +108,14 @@ export const useUserStats = () => {
         currentStreak: userStatsData?.current_streak || userData?.streak || 0,
         bestStreak: userStatsData?.best_streak || userData?.streak || 0,
         totalStudyTime: userStatsData?.total_study_time_minutes || 0,
+        // Current Affairs specific stats
+        currentAffairsStreak: userStatsData?.current_affairs_streak || 0,
+        currentAffairsTotal: userStatsData?.current_affairs_total || 0,
+        currentAffairsCorrect: userStatsData?.current_affairs_correct || 0,
+        currentAffairsPoints: userStatsData?.current_affairs_points || 0,
+        currentAffairsAccuracy: userStatsData?.current_affairs_total > 0 
+          ? Math.round((userStatsData?.current_affairs_correct / userStatsData?.current_affairs_total) * 100)
+          : 0,
       };
 
       // If we need best score, get it from quiz_attempts
@@ -226,6 +245,126 @@ export const useUserStats = () => {
     }
   }, [user, fetchStats]);
 
+  // Function to update Current Affairs specific stats
+  const updateCurrentAffairsStats = useCallback(async (isCorrect: boolean, xpEarned: number) => {
+    if (!user) return;
+
+    try {
+      console.log('📰 Updating Current Affairs stats:', { isCorrect, xpEarned });
+
+      // First, update the users table with new XP
+      const { data: currentUser, error: fetchError } = await supabase
+        .from('users')
+        .select('xp, level')
+        .eq('id', user.id)
+        .single();
+
+      if (fetchError) {
+        console.error('❌ Error fetching current user data:', fetchError);
+        return;
+      }
+
+      const newXP = (currentUser?.xp || 0) + xpEarned;
+      const newLevel = Math.floor(newXP / 1000) + 1;
+
+      const { error: updateUserError } = await supabase
+        .from('users')
+        .update({ 
+          xp: newXP,
+          level: newLevel
+        })
+        .eq('id', user.id);
+
+      if (updateUserError) {
+        console.error('❌ Error updating user XP/level:', updateUserError);
+      }
+
+      // Get or create user_stats record
+      const { data: existingStats, error: statsError } = await supabase
+        .from('user_stats')
+        .select('*')
+        .eq('user_id', user.id)
+        .single();
+
+      const today = new Date().toISOString().split('T')[0];
+      
+      if (statsError && statsError.code === 'PGRST116') {
+        // No existing stats, create new record
+        const { error: insertError } = await supabase
+          .from('user_stats')
+          .insert({
+            user_id: user.id,
+            total_xp: newXP,
+            current_level: newLevel,
+            current_affairs_total: 1,
+            current_affairs_correct: isCorrect ? 1 : 0,
+            current_affairs_points: xpEarned,
+            current_affairs_streak: isCorrect ? 1 : 0,
+            last_activity_date: today,
+            last_quiz_date: today,
+          });
+
+        if (insertError) {
+          console.error('❌ Error inserting user stats:', insertError);
+        }
+      } else if (!statsError && existingStats) {
+        // Update existing stats
+        const newTotal = (existingStats.current_affairs_total || 0) + 1;
+        const newCorrect = (existingStats.current_affairs_correct || 0) + (isCorrect ? 1 : 0);
+        const newPoints = (existingStats.current_affairs_points || 0) + xpEarned;
+        
+        // Handle streak logic
+        const lastQuizDate = existingStats.last_quiz_date;
+        const yesterday = new Date();
+        yesterday.setDate(yesterday.getDate() - 1);
+        const yesterdayStr = yesterday.toISOString().split('T')[0];
+        
+        let newStreak = existingStats.current_affairs_streak || 0;
+        
+        if (isCorrect) {
+          if (lastQuizDate === today) {
+            // Same day, maintain streak
+            newStreak = newStreak;
+          } else if (lastQuizDate === yesterdayStr) {
+            // Consecutive day, increment streak
+            newStreak = newStreak + 1;
+          } else {
+            // Gap in days, reset streak
+            newStreak = 1;
+          }
+        } else {
+          // Wrong answer, reset streak
+          newStreak = 0;
+        }
+
+        const { error: updateError } = await supabase
+          .from('user_stats')
+          .update({
+            total_xp: newXP,
+            current_level: newLevel,
+            current_affairs_total: newTotal,
+            current_affairs_correct: newCorrect,
+            current_affairs_points: newPoints,
+            current_affairs_streak: newStreak,
+            last_activity_date: today,
+            last_quiz_date: today,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('user_id', user.id);
+
+        if (updateError) {
+          console.error('❌ Error updating user stats:', updateError);
+        }
+      }
+
+      // Refresh stats to show updated values
+      await fetchStats(true);
+
+    } catch (error) {
+      console.error('❌ Error updating Current Affairs stats:', error);
+    }
+  }, [user, fetchStats]);
+
   // Initial fetch when user changes or component mounts
   useEffect(() => {
     if (user) {
@@ -241,6 +380,11 @@ export const useUserStats = () => {
         currentStreak: 0,
         bestStreak: 0,
         totalStudyTime: 0,
+        currentAffairsStreak: 0,
+        currentAffairsTotal: 0,
+        currentAffairsCorrect: 0,
+        currentAffairsPoints: 0,
+        currentAffairsAccuracy: 0,
       });
       setHasData(false);
       setIsInitialLoading(true);
@@ -258,6 +402,7 @@ export const useUserStats = () => {
     refreshing: isRefreshing,
     refreshStats,
     updateStatsAfterQuiz,
+    updateCurrentAffairsStats, // New function for Current Affairs
     hasData, // Useful for conditional rendering
   };
 };

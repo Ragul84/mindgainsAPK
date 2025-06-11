@@ -1,1297 +1,1532 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
   StyleSheet,
-  ScrollView,
   TouchableOpacity,
-  Image,
   Dimensions,
-  Modal,
-  TextInput,
-  RefreshControl,
   Alert,
+  StatusBar,
+  Animated as RNAnimated,
+  Vibration,
+  ScrollView,
+  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useNews } from '@/hooks/useNews';
-import Animated, {
-  useSharedValue,
-  useAnimatedStyle,
-  withTiming,
-  withSpring,
-  withRepeat,
-  withSequence,
-} from 'react-native-reanimated';
-import {
-  Newspaper,
-  Clock,
-  TrendingUp,
-  Globe,
-  Users,
-  BookOpen,
-  Calendar,
-  Tag,
-  ArrowRight,
-  Filter,
-  Search,
-  Star,
-  Share,
-  Bookmark,
-  Play,
-  Mic,
-  Eye,
-  MessageSquare,
-  X,
-  ChevronDown,
-  Zap,
-  Target,
-  Award,
-  Sparkles,
-  RefreshCw,
-  Wifi,
-  WifiOff,
-} from 'lucide-react-native';
+import { useAuth } from '@/contexts/AuthContext';
+import { useUserStats } from '@/hooks/useUserStats';
+import { supabase } from '@/lib/supabase';
 
-const { width } = Dimensions.get('window');
-const AnimatedTouchableOpacity = Animated.createAnimatedComponent(TouchableOpacity);
+const { width, height } = Dimensions.get('window');
 
-export default function NewsScreen() {
-  const [selectedCategory, setSelectedCategory] = useState('all');
-  const [searchModalVisible, setSearchModalVisible] = useState(false);
-  const [filterModalVisible, setFilterModalVisible] = useState(false);
-  const [selectedNews, setSelectedNews] = useState<any>(null);
-  const [newsModalVisible, setNewsModalVisible] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [bookmarkedNews, setBookmarkedNews] = useState(new Set());
-  const [readNews, setReadNews] = useState(new Set());
+interface CurrentAffairsFact {
+  id: string;
+  topic: string;
+  question: string;
+  answer: string;
+  options?: string[];
+  type: 'reveal' | 'mcq' | 'true-false';
+  category: 'politics' | 'economy' | 'international' | 'schemes' | 'general';
+  difficulty: 'easy' | 'medium' | 'hard';
+  examRelevance: number;
+  keywords: string[];
+  explanation: string;
+  source?: string;
+}
 
-  const { 
-    news, 
-    todaysHighlights, 
-    loading, 
-    error, 
-    fetchNews, 
-    searchNews, 
-    getNewsByCategory,
-    refreshNews,
-    lastFetchTime 
-  } = useNews();
+interface UserProgress {
+  hearts: number;
+  streak: number;
+  totalXP: number;
+  dailyXP: number;
+  level: number;
+  questionsToday: number;
+  accuracy: number;
+  achievements: string[];
+  masteredTopics: string[];
+}
 
-  // Animation values
-  const headerOpacity = useSharedValue(1);
-  const searchScale = useSharedValue(1);
-  const refreshRotation = useSharedValue(0);
+const NewsScreen = () => {
+  const { user } = useAuth();
+  const { stats, updateCurrentAffairsStats, loading: statsLoading } = useUserStats();
+  
+  // Game State
+  const [facts, setFacts] = useState<CurrentAffairsFact[]>([]);
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [showAnswer, setShowAnswer] = useState(false);
+  const [selectedOption, setSelectedOption] = useState<string | null>(null);
+  const [isCorrect, setIsCorrect] = useState<boolean | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [showExplanation, setShowExplanation] = useState(false);
+  const [showCompletionModal, setShowCompletionModal] = useState(false);
+  const [showGameOverModal, setShowGameOverModal] = useState(false);
+  const [sessionStartTime] = useState(Date.now());
+  
+  // Gamification State
+  const [progress, setProgress] = useState<UserProgress>({
+    hearts: 3,
+    streak: 0,
+    totalXP: 0,
+    dailyXP: 0,
+    level: 1,
+    questionsToday: 0,
+    accuracy: 0,
+    achievements: [],
+    masteredTopics: []
+  });
 
-  const categories = [
-    { id: 'all', name: 'All News', icon: Globe, color: '#3B82F6' },
-    { id: 'politics', name: 'Politics', icon: Users, color: '#EF4444' },
-    { id: 'economy', name: 'Economy', icon: TrendingUp, color: '#10B981' },
-    { id: 'international', name: 'International', icon: Globe, color: '#8B5CF6' },
-    { id: 'science', name: 'Science & Tech', icon: Zap, color: '#F59E0B' },
-    { id: 'environment', name: 'Environment', icon: Target, color: '#06B6D4' },
-    { id: 'sports', name: 'Sports', icon: Award, color: '#EC4899' },
+  // Animations
+  const heartScale = useRef(new RNAnimated.Value(1)).current;
+  const xpPulse = useRef(new RNAnimated.Value(1)).current;
+  const cardSlide = useRef(new RNAnimated.Value(0)).current;
+  const streakGlow = useRef(new RNAnimated.Value(0)).current;
+
+  // Check if user is admin
+  const isAdmin = user?.email === 'ragularvind84@gmail.com';
+
+  // Fetch Today's Current Affairs from Supabase Database
+  const fetchTodaysCurrentAffairs = async () => {
+    try {
+      setLoading(true);
+      console.log('📰 Fetching today\'s current affairs from database...');
+      
+      const today = new Date().toISOString().split('T')[0];
+      
+      const { data: todaysQuestions, error } = await supabase
+        .from('current_affairs_daily')
+        .select('*')
+        .eq('date', today)
+        .eq('is_active', true)
+        .order('sequence_order', { ascending: true });
+
+      if (error) {
+        console.error('Error fetching from database:', error);
+        throw error;
+      }
+
+      if (todaysQuestions && todaysQuestions.length > 0) {
+        console.log(`✅ Found ${todaysQuestions.length} questions for today from database`);
+        
+        const formattedQuestions: CurrentAffairsFact[] = todaysQuestions.map((q: any) => ({
+          id: q.id.toString(),
+          topic: q.topic,
+          question: q.question,
+          answer: q.answer,
+          options: q.options ? q.options : undefined,
+          type: q.type,
+          category: q.category,
+          difficulty: q.difficulty,
+          examRelevance: q.exam_relevance || 85,
+          keywords: q.keywords || [],
+          explanation: q.explanation || 'No explanation available.',
+          source: q.source || 'Current Affairs Daily'
+        }));
+        
+        setFacts(formattedQuestions);
+      } else {
+        console.log('⚠️ No questions found for today, using fallback questions');
+        setFacts(getFallbackQuestions());
+      }
+      
+    } catch (error) {
+      console.error('❌ Database error, using fallback:', error);
+      setFacts(getFallbackQuestions());
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Fallback questions if database is empty
+  const getFallbackQuestions = (): CurrentAffairsFact[] => [
+    {
+      id: 'today_1',
+      topic: 'Economic Survey 2025',
+      question: 'What is India\'s projected GDP growth rate for 2025-26?',
+      answer: '6.8%',
+      options: ['6.2%', '6.5%', '6.8%', '7.1%'],
+      type: 'mcq',
+      category: 'economy',
+      difficulty: 'medium',
+      examRelevance: 95,
+      keywords: ['GDP Growth', 'Economic Survey', 'Fiscal Year'],
+      explanation: 'The Economic Survey 2025 projects India\'s GDP growth at 6.8% for FY 2025-26, driven by domestic consumption and investment.',
+      source: 'Economic Survey 2025'
+    },
+    {
+      id: 'today_2',
+      topic: 'New Education Policy',
+      question: 'NEP 2024 Amendment introduces coding from which class?',
+      answer: 'Class 3',
+      options: ['Class 1', 'Class 3', 'Class 5', 'Class 6'],
+      type: 'mcq',
+      category: 'schemes',
+      difficulty: 'easy',
+      examRelevance: 88,
+      keywords: ['NEP 2024', 'Coding', 'Digital Education'],
+      explanation: 'The NEP 2024 Amendment mandates coding and computational thinking from Class 3 onwards in all schools.',
+      source: 'Ministry of Education'
+    },
+    {
+      id: 'today_3',
+      topic: 'Climate Summit 2025',
+      question: 'India committed to achieve net-zero emissions by 2070',
+      answer: 'true',
+      type: 'true-false',
+      category: 'international',
+      difficulty: 'medium',
+      examRelevance: 92,
+      keywords: ['Net Zero', 'Climate Change', 'COP29'],
+      explanation: 'India reaffirmed its commitment to achieve net-zero emissions by 2070 at the Global Climate Summit 2025.',
+      source: 'Ministry of Environment'
+    },
+    {
+      id: 'today_4',
+      topic: 'Supreme Court Verdict',
+      question: 'Which fundamental right was reinforced in the recent privacy judgment?',
+      answer: 'Right to Privacy',
+      type: 'reveal',
+      category: 'politics',
+      difficulty: 'hard',
+      examRelevance: 96,
+      keywords: ['Privacy Rights', 'Supreme Court', 'Fundamental Rights'],
+      explanation: 'Supreme Court reinforced that Right to Privacy under Article 21 extends to digital spaces and AI surveillance.',
+      source: 'Supreme Court of India'
+    },
+    {
+      id: 'today_5',
+      topic: 'Digital Rupee Update',
+      question: 'RBI\'s Digital Rupee pilot covers 15 cities',
+      answer: 'true',
+      type: 'true-false',
+      category: 'economy',
+      difficulty: 'medium',
+      examRelevance: 90,
+      keywords: ['CBDC', 'Digital Rupee', 'RBI'],
+      explanation: 'RBI expanded Digital Rupee (e₹) pilot to 15 major cities including Delhi, Mumbai, Bengaluru, and Chennai.',
+      source: 'Reserve Bank of India'
+    },
+    {
+      id: 'today_6',
+      topic: 'Space Mission Update',
+      question: 'Which is ISRO\'s next major mission after Chandrayaan-3?',
+      answer: 'Gaganyaan',
+      options: ['Mangalyaan-2', 'Gaganyaan', 'Shukrayaan-1', 'Aditya-L2'],
+      type: 'mcq',
+      category: 'general',
+      difficulty: 'medium',
+      examRelevance: 85,
+      keywords: ['ISRO', 'Gaganyaan', 'Human Spaceflight'],
+      explanation: 'ISRO\'s Gaganyaan mission aims to send Indian astronauts to space, with first uncrewed test scheduled for 2025.',
+      source: 'ISRO'
+    },
+    {
+      id: 'today_7',
+      topic: 'Agricultural Reforms',
+      question: 'MSP increase for wheat in 2025-26 is 8.5%',
+      answer: 'false',
+      type: 'true-false',
+      category: 'schemes',
+      difficulty: 'hard',
+      examRelevance: 87,
+      keywords: ['MSP', 'Wheat', 'Agricultural Policy'],
+      explanation: 'MSP for wheat increased by 6.2% to ₹2,425 per quintal for 2025-26, not 8.5%.',
+      source: 'Ministry of Agriculture'
+    },
+    {
+      id: 'today_8',
+      topic: 'India-Japan Partnership',
+      question: 'What is the focus of the new India-Japan semiconductor alliance?',
+      answer: 'Manufacturing & Research',
+      type: 'reveal',
+      category: 'international',
+      difficulty: 'medium',
+      examRelevance: 83,
+      keywords: ['India-Japan', 'Semiconductors', 'Technology'],
+      explanation: 'India-Japan semiconductor alliance focuses on joint manufacturing facilities and R&D centers for advanced chips.',
+      source: 'Ministry of External Affairs'
+    }
   ];
 
-  const handleCategoryChange = (categoryId: string) => {
-    setSelectedCategory(categoryId);
-    fetchNews(categoryId);
-  };
-
-  const handleRefresh = () => {
-    refreshRotation.value = withRepeat(
-      withTiming(360, { duration: 1000 }),
-      1,
-      false
-    );
-    refreshNews();
-  };
-
-  const animatedRefreshStyle = useAnimatedStyle(() => ({
-    transform: [{ rotate: `${refreshRotation.value}deg` }],
-  }));
-
-  // Enhanced News Card Component
-  const NewsCard = ({ news, isHighlight = false }: { news: any; isHighlight?: boolean }) => {
-    const scale = useSharedValue(1);
-    const isRead = readNews.has(news.id);
-    const isBookmarked = bookmarkedNews.has(news.id);
-
-    const animatedStyle = useAnimatedStyle(() => ({
-      transform: [{ scale: scale.value }],
-    }));
-
-    const handlePressIn = () => {
-      scale.value = withSpring(0.98, { damping: 15, stiffness: 300 });
-    };
-
-    const handlePressOut = () => {
-      scale.value = withSpring(1, { damping: 15, stiffness: 200 });
-    };
-
-    const handlePress = () => {
-      setSelectedNews(news);
-      setNewsModalVisible(true);
-      setReadNews(prev => new Set([...prev, news.id]));
-    };
-
-    const toggleBookmark = () => {
-      setBookmarkedNews(prev => {
-        const newSet = new Set(prev);
-        if (newSet.has(news.id)) {
-          newSet.delete(news.id);
-        } else {
-          newSet.add(news.id);
-        }
-        return newSet;
-      });
-    };
-
-    const getImportanceColor = (importance: string) => {
-      switch (importance) {
-        case 'critical': return '#EF4444';
-        case 'high': return '#F59E0B';
-        case 'medium': return '#10B981';
-        default: return '#6B7280';
-      }
-    };
-
-    const getCategoryIcon = (category: string) => {
-      const categoryData = categories.find(c => c.id === category);
-      return categoryData?.icon || Newspaper;
-    };
-
-    const Icon = getCategoryIcon(news.category);
-
-    return (
-      <AnimatedTouchableOpacity
-        style={[
-          isHighlight ? styles.highlightCard : styles.newsCard,
-          animatedStyle,
-          { opacity: isRead ? 0.7 : 1 }
-        ]}
-        onPressIn={handlePressIn}
-        onPressOut={handlePressOut}
-        onPress={handlePress}
-      >
-        <LinearGradient
-          colors={
-            isHighlight 
-              ? ['rgba(239, 68, 68, 0.1)', 'rgba(239, 68, 68, 0.05)']
-              : ['rgba(255, 255, 255, 0.05)', 'rgba(255, 255, 255, 0.02)']
-          }
-          style={styles.newsCardGradient}
-        >
-          {/* News Image */}
-          <View style={styles.newsImageContainer}>
-            <Image 
-              source={{ uri: news.imageUrl }} 
-              style={styles.newsImage}
-              resizeMode="cover"
-            />
-            
-            {/* Importance Badge */}
-            <View style={[
-              styles.importanceBadge,
-              { backgroundColor: getImportanceColor(news.importance) }
-            ]}>
-              <Text style={styles.importanceBadgeText}>
-                {news.importance?.toUpperCase()}
-              </Text>
-            </View>
-
-            {/* Exam Relevance Score */}
-            <View style={styles.examRelevanceScore}>
-              <Star size={12} color="#F59E0B" fill="#F59E0B" />
-              <Text style={styles.examRelevanceText}>{news.examRelevance}%</Text>
-            </View>
-
-            {/* Live Badge for recent news */}
-            {new Date(news.publishedAt).getTime() > Date.now() - 2 * 60 * 60 * 1000 && (
-              <View style={styles.liveBadge}>
-                <View style={styles.liveDot} />
-                <Text style={styles.liveText}>LIVE</Text>
-              </View>
-            )}
-          </View>
-
-          {/* News Content */}
-          <View style={styles.newsContent}>
-            <View style={styles.newsHeader}>
-              <View style={styles.categoryBadge}>
-                <Icon size={14} color="#00FF88" strokeWidth={2} />
-                <Text style={styles.categoryText}>
-                  {categories.find(c => c.id === news.category)?.name || news.category}
-                </Text>
-              </View>
-              
-              <TouchableOpacity onPress={toggleBookmark} style={styles.bookmarkButton}>
-                <Bookmark 
-                  size={16} 
-                  color={isBookmarked ? '#F59E0B' : '#9CA3AF'} 
-                  fill={isBookmarked ? '#F59E0B' : 'transparent'}
-                  strokeWidth={2}
-                />
-              </TouchableOpacity>
-            </View>
-
-            <Text style={styles.newsTitle} numberOfLines={2}>
-              {news.title}
-            </Text>
-            
-            <Text style={styles.newsSummary} numberOfLines={2}>
-              {news.summary}
-            </Text>
-
-            {/* Key Points Preview */}
-            {news.keyPoints && news.keyPoints.length > 0 && (
-              <View style={styles.keyPointsPreview}>
-                <Text style={styles.keyPointsLabel}>Key Points:</Text>
-                <Text style={styles.keyPointsText} numberOfLines={1}>
-                  • {news.keyPoints[0]}
-                </Text>
-              </View>
-            )}
-
-            {/* News Meta */}
-            <View style={styles.newsMeta}>
-              <View style={styles.newsMetaLeft}>
-                <View style={styles.newsMetaItem}>
-                  <Clock size={12} color="#9CA3AF" strokeWidth={2} />
-                  <Text style={styles.newsMetaText}>{news.readTime} min</Text>
-                </View>
-                <View style={styles.newsMetaItem}>
-                  <Calendar size={12} color="#9CA3AF" strokeWidth={2} />
-                  <Text style={styles.newsMetaText}>
-                    {new Date(news.publishedAt).toLocaleDateString()}
-                  </Text>
-                </View>
-                <View style={styles.newsMetaItem}>
-                  <Text style={styles.sourceText}>{news.source}</Text>
-                </View>
-              </View>
-              
-              <View style={styles.newsActions}>
-                <TouchableOpacity style={styles.actionButton}>
-                  <Share size={14} color="#9CA3AF" strokeWidth={2} />
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.actionButton}>
-                  <Eye size={14} color="#9CA3AF" strokeWidth={2} />
-                </TouchableOpacity>
-              </View>
-            </View>
-          </View>
-        </LinearGradient>
-      </AnimatedTouchableOpacity>
-    );
-  };
-
-  // Today's Highlights Section
-  const TodaysHighlights = () => (
-    <View style={styles.highlightsSection}>
-      <View style={styles.sectionHeader}>
-        <View style={styles.sectionTitleContainer}>
-          <TrendingUp size={24} color="#EF4444" strokeWidth={2.5} />
-          <Text style={styles.sectionTitle}>Today's Highlights</Text>
-        </View>
-        <Text style={styles.sectionSubtitle}>Critical for exam preparation</Text>
-      </View>
+  // Admin function to add today's questions
+  const addTodaysQuestions = async () => {
+    try {
+      const today = new Date().toISOString().split('T')[0];
       
-      <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-        {todaysHighlights.map((highlight) => (
-          <TouchableOpacity 
-            key={highlight.id} 
-            style={styles.highlightItemCard}
-            onPress={() => {
-              if (highlight.article) {
-                setSelectedNews(highlight.article);
-                setNewsModalVisible(true);
-              }
-            }}
-          >
-            <LinearGradient
-              colors={['rgba(239, 68, 68, 0.15)', 'rgba(239, 68, 68, 0.05)']}
-              style={styles.highlightItemGradient}
-            >
-              <View style={styles.highlightItemHeader}>
-                <View style={styles.highlightImportanceIndicator}>
-                  <Text style={styles.highlightImportanceText}>
-                    {highlight.importance?.toUpperCase()}
-                  </Text>
-                </View>
-                <Text style={styles.highlightExamWeight}>{highlight.examWeight}%</Text>
-              </View>
-              
-              <Text style={styles.highlightItemTitle}>{highlight.title}</Text>
-              <Text style={styles.highlightItemDescription}>{highlight.description}</Text>
-              
-              <View style={styles.highlightItemAction}>
-                <Text style={styles.highlightActionText}>Read Details</Text>
-                <ArrowRight size={14} color="#EF4444" strokeWidth={2} />
-              </View>
-            </LinearGradient>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
-    </View>
-  );
+      const questionsToAdd = [
+        {
+          date: today,
+          sequence_order: 1,
+          topic: 'Budget 2025',
+          question: 'What is the fiscal deficit target for 2025-26?',
+          answer: '4.9%',
+          options: JSON.stringify(['4.5%', '4.9%', '5.1%', '5.3%']),
+          type: 'mcq',
+          category: 'economy',
+          difficulty: 'medium',
+          exam_relevance: 95,
+          keywords: JSON.stringify(['Budget', 'Fiscal Deficit', 'Economy']),
+          explanation: 'Budget 2025 set the fiscal deficit target at 4.9% of GDP for the financial year 2025-26.',
+          source: 'Union Budget 2025',
+          is_active: true
+        },
+        {
+          date: today,
+          sequence_order: 2,
+          topic: 'Supreme Court Verdict',
+          question: 'SC upheld the constitutional validity of Aadhaar for banking',
+          answer: 'true',
+          options: null,
+          type: 'true-false',
+          category: 'politics',
+          difficulty: 'medium',
+          exam_relevance: 92,
+          keywords: JSON.stringify(['Supreme Court', 'Aadhaar', 'Banking']),
+          explanation: 'Supreme Court upheld Aadhaar linking for banking services while ensuring privacy safeguards.',
+          source: 'Supreme Court of India',
+          is_active: true
+        },
+      ];
 
-  // AI Summary Section
-  const AISummarySection = () => (
-    <View style={styles.aiSummarySection}>
-      <LinearGradient
-        colors={['rgba(139, 92, 246, 0.1)', 'rgba(59, 130, 246, 0.1)']}
-        style={styles.aiSummaryCard}
-      >
-        <View style={styles.aiSummaryHeader}>
-          <View style={styles.aiSummaryTitleContainer}>
-            <Sparkles size={24} color="#8B5CF6" strokeWidth={2.5} />
-            <Text style={styles.aiSummaryTitle}>AI Daily Brief</Text>
-          </View>
-          <TouchableOpacity style={styles.aiSummaryPlayButton}>
-            <Play size={16} color="#8B5CF6" strokeWidth={2.5} />
-          </TouchableOpacity>
-        </View>
-        
-        <Text style={styles.aiSummaryText}>
-          "Today's key developments include {todaysHighlights.length > 0 ? todaysHighlights[0].title.toLowerCase() : 'government policy updates'}, 
-          economic indicators, and international relations. Focus on policy implementations and 
-          bilateral agreements for upcoming exams."
-        </Text>
-        
-        <View style={styles.aiSummaryActions}>
-          <TouchableOpacity style={styles.aiActionButton}>
-            <Mic size={14} color="#8B5CF6" strokeWidth={2} />
-            <Text style={styles.aiActionText}>Listen</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.aiActionButton}>
-            <BookOpen size={14} color="#8B5CF6" strokeWidth={2} />
-            <Text style={styles.aiActionText}>Full Summary</Text>
-          </TouchableOpacity>
-        </View>
-      </LinearGradient>
-    </View>
-  );
+      const { data, error } = await supabase
+        .from('current_affairs_daily')
+        .insert(questionsToAdd);
 
-  // News Detail Modal
-  const NewsDetailModal = () => {
-    if (!selectedNews) return null;
+      if (error) throw error;
 
-    return (
-      <Modal
-        visible={newsModalVisible}
-        animationType="slide"
-        presentationStyle="pageSheet"
-      >
-        <SafeAreaView style={styles.modalContainer}>
-          <View style={styles.modalHeader}>
-            <TouchableOpacity
-              onPress={() => setNewsModalVisible(false)}
-              style={styles.modalCloseButton}
-            >
-              <X size={24} color="#FFFFFF" strokeWidth={2} />
-            </TouchableOpacity>
-            <Text style={styles.modalTitle}>News Details</Text>
-            <TouchableOpacity style={styles.modalShareButton}>
-              <Share size={20} color="#FFFFFF" strokeWidth={2} />
-            </TouchableOpacity>
-          </View>
-
-          <ScrollView style={styles.modalContent}>
-            <Image 
-              source={{ uri: selectedNews.imageUrl }} 
-              style={styles.modalImage}
-              resizeMode="cover"
-            />
-            
-            <View style={styles.modalNewsContent}>
-              <View style={styles.modalNewsHeader}>
-                <Text style={styles.modalNewsCategory}>{selectedNews.category?.toUpperCase()}</Text>
-                <Text style={styles.modalNewsSource}>{selectedNews.source}</Text>
-              </View>
-              
-              <Text style={styles.modalNewsTitle}>{selectedNews.title}</Text>
-              <Text style={styles.modalNewsSummary}>{selectedNews.summary}</Text>
-              
-              {/* Key Points Section */}
-              {selectedNews.keyPoints && selectedNews.keyPoints.length > 0 && (
-                <View style={styles.modalSection}>
-                  <Text style={styles.modalSectionTitle}>Key Points for Exams</Text>
-                  {selectedNews.keyPoints.map((point: string, index: number) => (
-                    <View key={index} style={styles.keyPointItem}>
-                      <View style={styles.keyPointBullet} />
-                      <Text style={styles.keyPointText}>{point}</Text>
-                    </View>
-                  ))}
-                </View>
-              )}
-
-              {/* Exam Questions Section */}
-              {selectedNews.examQuestions && selectedNews.examQuestions.length > 0 && (
-                <View style={styles.modalSection}>
-                  <Text style={styles.modalSectionTitle}>Possible Exam Questions</Text>
-                  {selectedNews.examQuestions.map((question: string, index: number) => (
-                    <View key={index} style={styles.examQuestionItem}>
-                      <Text style={styles.examQuestionText}>Q{index + 1}. {question}</Text>
-                    </View>
-                  ))}
-                </View>
-              )}
-
-              {/* Tags Section */}
-              {selectedNews.tags && selectedNews.tags.length > 0 && (
-                <View style={styles.modalSection}>
-                  <Text style={styles.modalSectionTitle}>Related Topics</Text>
-                  <View style={styles.tagsContainer}>
-                    {selectedNews.tags.map((tag: string, index: number) => (
-                      <View key={index} style={styles.tagItem}>
-                        <Tag size={12} color="#8B5CF6" strokeWidth={2} />
-                        <Text style={styles.tagText}>{tag}</Text>
-                      </View>
-                    ))}
-                  </View>
-                </View>
-              )}
-
-              {/* Full Content */}
-              <View style={styles.modalSection}>
-                <Text style={styles.modalSectionTitle}>Full Article</Text>
-                <Text style={styles.modalFullContent}>{selectedNews.content}</Text>
-              </View>
-
-              {/* Source Link */}
-              <TouchableOpacity style={styles.sourceButton}>
-                <Text style={styles.sourceButtonText}>Read Original Article</Text>
-                <ArrowRight size={16} color="#8B5CF6" strokeWidth={2} />
-              </TouchableOpacity>
-            </View>
-          </ScrollView>
-        </SafeAreaView>
-      </Modal>
-    );
+      Alert.alert('✅ Success', `Added ${questionsToAdd.length} questions for today!`);
+      await fetchTodaysCurrentAffairs();
+      
+    } catch (error) {
+      console.error('Error adding questions:', error);
+      Alert.alert('❌ Error', 'Failed to add questions to database');
+    }
   };
 
-  // Search and Filter Header
-  const SearchFilterHeader = () => {
-    const animatedSearchStyle = useAnimatedStyle(() => ({
-      transform: [{ scale: searchScale.value }],
-    }));
+  // Save progress to database
+  const saveProgressToDatabase = async (sessionData: any) => {
+    try {
+      if (!user?.id) return;
 
-    const handleSearchPress = () => {
-      searchScale.value = withSequence(
-        withSpring(0.95, { damping: 15, stiffness: 300 }),
-        withSpring(1, { damping: 15, stiffness: 200 })
-      );
-      setSearchModalVisible(true);
-    };
+      const progressRecord = {
+        user_id: user.id,
+        session_date: new Date().toISOString().split('T')[0],
+        session_type: 'current_affairs',
+        questions_answered: sessionData.questions_completed || facts.length,
+        correct_answers: Math.round((sessionData.final_accuracy / 100) * facts.length),
+        accuracy_percentage: sessionData.final_accuracy,
+        xp_earned: sessionData.final_xp || progress.dailyXP,
+        time_spent_seconds: Math.round((sessionData.session_duration || 0) / 1000),
+        perfect_score: sessionData.perfect_score || false,
+        hearts_remaining: sessionData.hearts_remaining || progress.hearts,
+        session_completed: sessionData.session_completed || false,
+        created_at: new Date().toISOString()
+      };
 
-    return (
-      <View style={styles.searchFilterContainer}>
-        <AnimatedTouchableOpacity
-          style={[styles.searchButton, animatedSearchStyle]}
-          onPress={handleSearchPress}
-        >
-          <Search size={20} color="#9CA3AF" strokeWidth={2} />
-          <Text style={styles.searchButtonText}>Search current affairs...</Text>
-        </AnimatedTouchableOpacity>
-        
-        <TouchableOpacity
-          style={styles.filterButton}
-          onPress={() => setFilterModalVisible(true)}
-        >
-          <Filter size={20} color="#00FF88" strokeWidth={2} />
-        </TouchableOpacity>
+      const { error } = await supabase
+        .from('user_progress_sessions')
+        .insert([progressRecord]);
 
-        <TouchableOpacity
-          style={styles.refreshButton}
-          onPress={handleRefresh}
-        >
-          <Animated.View style={animatedRefreshStyle}>
-            <RefreshCw size={20} color="#8B5CF6" strokeWidth={2} />
-          </Animated.View>
-        </TouchableOpacity>
-      </View>
-    );
+      if (error) {
+        console.error('Error saving session progress:', error);
+      } else {
+        console.log('✅ Session progress saved successfully');
+      }
+    } catch (error) {
+      console.error('Error in saveProgressToDatabase:', error);
+    }
   };
 
-  // Category Filter Pills
-  const CategoryFilter = () => (
-    <View style={styles.categoryFilter}>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-        {categories.map((category) => {
-          const isSelected = selectedCategory === category.id;
-          const Icon = category.icon;
-          
-          return (
-            <TouchableOpacity
-              key={category.id}
-              style={[
-                styles.categoryPill,
-                isSelected && { backgroundColor: category.color + '20', borderColor: category.color + '40' }
-              ]}
-              onPress={() => handleCategoryChange(category.id)}
-            >
-              <Icon 
-                size={16} 
-                color={isSelected ? category.color : '#9CA3AF'} 
-                strokeWidth={2} 
-              />
-              <Text style={[
-                styles.categoryPillText,
-                { color: isSelected ? category.color : '#9CA3AF' }
-              ]}>
-                {category.name}
-              </Text>
-            </TouchableOpacity>
-          );
-        })}
-      </ScrollView>
-    </View>
-  );
+  // Update progress when stats change from Supabase
+  useEffect(() => {
+    if (!statsLoading && stats) {
+      setProgress(prev => ({
+        ...prev,
+        streak: stats.currentAffairsStreak || 0,
+        totalXP: stats.totalXP || 0,
+        dailyXP: stats.currentAffairsPoints || 0,
+        level: stats.currentLevel || 1,
+        questionsToday: stats.currentAffairsTotal || 0,
+        accuracy: stats.currentAffairsAccuracy || 0,
+        achievements: [],
+        masteredTopics: []
+      }));
+    }
+  }, [stats, statsLoading]);
 
-  // Connection Status
-  const ConnectionStatus = () => (
-    <View style={styles.connectionStatus}>
-      <View style={styles.connectionIndicator}>
-        {error ? (
-          <>
-            <WifiOff size={16} color="#EF4444" strokeWidth={2} />
-            <Text style={styles.connectionText}>Connection Error</Text>
-          </>
-        ) : (
-          <>
-            <Wifi size={16} color="#10B981" strokeWidth={2} />
-            <Text style={styles.connectionText}>Live Updates</Text>
-          </>
-        )}
-      </View>
-      {lastFetchTime > 0 && (
-        <Text style={styles.lastUpdateText}>
-          Last updated: {new Date(lastFetchTime).toLocaleTimeString()}
-        </Text>
-      )}
-    </View>
-  );
+  // Initialize with today's current affairs
+  useEffect(() => {
+    fetchTodaysCurrentAffairs();
+    
+    // Premium heartbeat animation for high streaks
+    const glowAnimation = RNAnimated.loop(
+      RNAnimated.sequence([
+        RNAnimated.timing(streakGlow, {
+          toValue: 1,
+          duration: 2000,
+          useNativeDriver: true,
+        }),
+        RNAnimated.timing(streakGlow, {
+          toValue: 0,
+          duration: 2000,
+          useNativeDriver: true,
+        }),
+      ])
+    );
+    
+    glowAnimation.start();
+    return () => glowAnimation.stop();
+  }, []);
 
-  const filteredNews = getNewsByCategory(selectedCategory);
+  const handleAnswer = (answer: string | boolean) => {
+    const currentFact = facts[currentIndex];
+    let correct = false;
+    
+    if (currentFact.type === 'reveal') {
+      correct = answer === 'correct';
+    } else {
+      correct = String(answer).toLowerCase() === String(currentFact.answer).toLowerCase();
+    }
+    
+    setSelectedOption(String(answer));
+    setIsCorrect(correct);
+    setShowAnswer(true);
+    
+    if (correct) {
+      // Use platform-specific feedback
+      if (Platform.OS !== 'web') {
+        Vibration.vibrate(50);
+      }
+      animateSuccess();
+      updateProgress(true);
+    } else {
+      // Use platform-specific feedback
+      if (Platform.OS !== 'web') {
+        Vibration.vibrate([100, 50, 100]);
+      }
+      animateHeartLoss();
+      updateProgress(false);
+    }
+    
+    setTimeout(() => {
+      setShowExplanation(true);
+    }, 1000);
+  };
 
-  if (error) {
+  const animateSuccess = () => {
+    RNAnimated.sequence([
+      RNAnimated.timing(xpPulse, {
+        toValue: 1.2,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+      RNAnimated.timing(xpPulse, {
+        toValue: 1,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  };
+
+  const animateHeartLoss = () => {
+    RNAnimated.sequence([
+      RNAnimated.timing(heartScale, {
+        toValue: 1.3,
+        duration: 150,
+        useNativeDriver: true,
+      }),
+      RNAnimated.timing(heartScale, {
+        toValue: 0.8,
+        duration: 150,
+        useNativeDriver: true,
+      }),
+      RNAnimated.timing(heartScale, {
+        toValue: 1,
+        duration: 150,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  };
+
+  // XP and Progress Saving with Real Supabase
+  const updateProgress = async (correct: boolean) => {
+    const currentFact = facts[currentIndex];
+    const xpGained = correct ? (currentFact.difficulty === 'hard' ? 15 : currentFact.difficulty === 'medium' ? 10 : 5) : 0;
+    
+    try {
+      await updateCurrentAffairsStats(correct, xpGained);
+      console.log('✅ Progress saved to Supabase:', { correct, xpGained });
+    } catch (error) {
+      console.error('❌ Error saving to Supabase:', error);
+    }
+    
+    setProgress(prev => {
+      const newHearts = correct ? prev.hearts : Math.max(0, prev.hearts - 1);
+      const newProgress = {
+        ...prev,
+        hearts: newHearts,
+        totalXP: prev.totalXP + xpGained,
+        dailyXP: prev.dailyXP + xpGained,
+        questionsToday: prev.questionsToday + 1,
+        accuracy: Math.round(((prev.accuracy * (prev.questionsToday - 1)) + (correct ? 100 : 0)) / prev.questionsToday),
+        streak: correct ? prev.streak : 0,
+      };
+
+      if (!correct && newHearts === 0) {
+        setTimeout(() => {
+          setShowGameOverModal(true);
+        }, 2000);
+      }
+
+      return newProgress;
+    });
+  };
+
+  const nextQuestion = () => {
+    if (currentIndex < facts.length - 1) {
+      setCurrentIndex(currentIndex + 1);
+      resetQuestionState();
+      animateCardSlide();
+    } else {
+      handleCompleteSession();
+    }
+  };
+
+  const resetQuestionState = () => {
+    setShowAnswer(false);
+    setShowExplanation(false);
+    setSelectedOption(null);
+    setIsCorrect(null);
+  };
+
+  const animateCardSlide = () => {
+    cardSlide.setValue(100);
+    RNAnimated.timing(cardSlide, {
+      toValue: 0,
+      duration: 300,
+      useNativeDriver: true,
+    }).start();
+  };
+
+  const handleCompleteSession = async () => {
+    console.log('🎉 Session completed!');
+    
+    await saveProgressToDatabase({
+      session_completed: true,
+      final_accuracy: progress.accuracy,
+      total_questions: facts.length,
+      final_xp: progress.totalXP,
+      hearts_remaining: progress.hearts,
+      session_duration: Date.now() - sessionStartTime,
+      perfect_score: progress.accuracy === 100
+    });
+    
+    setShowCompletionModal(true);
+  };
+
+  const refillHearts = () => {
+    setProgress(prev => ({ ...prev, hearts: 3 }));
+    setShowGameOverModal(false);
+  };
+
+  const restartSession = async () => {
+    console.log('🔄 Restarting session...');
+    
+    await saveProgressToDatabase({
+      session_completed: true,
+      final_accuracy: progress.accuracy,
+      final_xp: progress.totalXP,
+      session_duration: Date.now() - sessionStartTime,
+      questions_completed: currentIndex + 1
+    });
+    
+    setCurrentIndex(0);
+    resetQuestionState();
+    await fetchTodaysCurrentAffairs();
+    setProgress(prev => ({ ...prev, hearts: 3 }));
+    setShowCompletionModal(false);
+  };
+
+  const currentFact = facts[currentIndex];
+
+  if (loading || !currentFact) {
     return (
       <SafeAreaView style={styles.container}>
-        <View style={styles.errorContainer}>
-          <WifiOff size={48} color="#EF4444" strokeWidth={2} />
-          <Text style={styles.errorTitle}>Connection Error</Text>
-          <Text style={styles.errorMessage}>{error}</Text>
-          <TouchableOpacity style={styles.retryButton} onPress={handleRefresh}>
-            <Text style={styles.retryButtonText}>Retry</Text>
-          </TouchableOpacity>
+        <View style={styles.loadingContainer}>
+          <Text style={styles.loadingTitle}>📰 Today's Current Affairs</Text>
+          <Text style={styles.loadingText}>
+            Loading {new Date().toLocaleDateString('en-IN', { month: 'long', day: 'numeric' })} questions...
+          </Text>
+          <Text style={styles.loadingSubtext}>💡 Visit daily for fresh content!</Text>
         </View>
       </SafeAreaView>
     );
   }
 
+  const getCategoryColor = (category: string) => {
+    const colors = {
+      politics: ['#EF4444', '#DC2626'],
+      economy: ['#10B981', '#059669'],
+      international: ['#3B82F6', '#2563EB'],
+      schemes: ['#8B5CF6', '#7C3AED'],
+      general: ['#F59E0B', '#D97706']
+    };
+    return colors[category] || colors.general;
+  };
+
+  const categoryColors = getCategoryColor(currentFact.category);
+
   return (
     <SafeAreaView style={styles.container}>
+      <StatusBar barStyle="light-content" backgroundColor="#0A0A0B" />
+      
+      {/* Header */}
+      <View style={styles.header}>
+        <View style={styles.headerTop}>
+          <View style={styles.headerLeft}>
+            <Text style={styles.headerTitle}>Today's Current Affairs</Text>
+            <Text style={styles.headerSubtitle}>
+              📅 {new Date().toLocaleDateString('en-IN', { 
+                weekday: 'long', 
+                year: 'numeric', 
+                month: 'long', 
+                day: 'numeric' 
+              })} • Visit Daily!
+            </Text>
+          </View>
+          
+          <View style={styles.headerRight}>
+            {/* Hearts */}
+            <RNAnimated.View style={[styles.heartsContainer, { transform: [{ scale: heartScale }] }]}>
+              {Array.from({ length: 3 }, (_, i) => (
+                <View key={i} style={[
+                  styles.heart,
+                  { backgroundColor: i < progress.hearts ? '#EF4444' : '#374151' }
+                ]}>
+                  <Text style={styles.heartText}>♥</Text>
+                </View>
+              ))}
+            </RNAnimated.View>
+            
+            {/* Streak */}
+            <RNAnimated.View style={[
+              styles.streakContainer,
+              {
+                shadowOpacity: RNAnimated.multiply(streakGlow, 0.5),
+                shadowRadius: RNAnimated.multiply(streakGlow, 10),
+              }
+            ]}>
+              <Text style={styles.streakIcon}>🔥</Text>
+              <Text style={styles.streakText}>{progress.streak}</Text>
+            </RNAnimated.View>
+          </View>
+        </View>
+
+        {/* XP Progress Bar */}
+        <View style={styles.xpContainer}>
+          <View style={styles.xpBar}>
+            <LinearGradient
+              colors={['#00FF88', '#10B981']}
+              style={[styles.xpFill, { width: `${(progress.dailyXP % 100)}%` }]}
+            />
+          </View>
+          <RNAnimated.Text style={[
+            styles.xpText,
+            { transform: [{ scale: xpPulse }] }
+          ]}>
+            {progress.dailyXP} XP today • {100 - (progress.dailyXP % 100)} to next level
+          </RNAnimated.Text>
+        </View>
+
+        {/* Progress Indicator */}
+        <View style={styles.progressContainer}>
+          <Text style={styles.progressText}>
+            Question {currentIndex + 1} of {facts.length}
+          </Text>
+          <View style={styles.progressBar}>
+            <View style={[
+              styles.progressFill,
+              { width: `${((currentIndex + 1) / facts.length) * 100}%` }
+            ]} />
+          </View>
+        </View>
+      </View>
+
+      {/* Scrollable Content */}
       <ScrollView 
-        style={styles.scrollView}
+        style={styles.scrollContainer}
+        contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
-        refreshControl={
-          <RefreshControl refreshing={loading} onRefresh={handleRefresh} />
-        }
+        bounces={true}
       >
-        {/* Header */}
-        <View style={styles.header}>
-          <View style={styles.headerContent}>
-            <Text style={styles.headerTitle}>Current Affairs</Text>
-            <Text style={styles.headerSubtitle}>Live Indian news for competitive exams</Text>
-          </View>
-        </View>
-
-        {/* Connection Status */}
-        <ConnectionStatus />
-
-        {/* Search and Filter */}
-        <SearchFilterHeader />
-
-        {/* AI Daily Brief */}
-        <AISummarySection />
-
-        {/* Today's Highlights */}
-        <TodaysHighlights />
-
-        {/* Category Filter */}
-        <CategoryFilter />
-
-        {/* News List */}
-        <View style={styles.newsSection}>
-          <View style={styles.newsSectionHeader}>
-            <Text style={styles.newsSectionTitle}>
-              {selectedCategory === 'all' ? 'All News' : categories.find(c => c.id === selectedCategory)?.name}
-            </Text>
-            <Text style={styles.newsSectionCount}>
-              {filteredNews.length} articles
-            </Text>
-          </View>
-
-          {loading && filteredNews.length === 0 ? (
-            <View style={styles.loadingContainer}>
-              <RefreshCw size={32} color="#8B5CF6" strokeWidth={2} />
-              <Text style={styles.loadingText}>Fetching latest news...</Text>
+        {/* Main Question Card */}
+        <RNAnimated.View style={[
+          styles.cardContainer,
+          { transform: [{ translateX: cardSlide }] }
+        ]}>
+          <LinearGradient
+            colors={[categoryColors[0] + '20', categoryColors[1] + '10']}
+            style={styles.questionCard}
+          >
+            {/* Category Badge */}
+            <View style={[styles.categoryBadge, { backgroundColor: categoryColors[0] }]}>
+              <Text style={styles.categoryText}>
+                {currentFact.category.toUpperCase()}
+              </Text>
+              <View style={styles.difficultyBadge}>
+                <Text style={styles.difficultyText}>
+                  {currentFact.difficulty === 'hard' ? '🔴' : currentFact.difficulty === 'medium' ? '🟡' : '🟢'}
+                </Text>
+              </View>
             </View>
-          ) : (
-            filteredNews.map((newsItem) => (
-              <NewsCard key={newsItem.id} news={newsItem} />
-            ))
-          )}
-        </View>
 
-        {/* News Detail Modal */}
-        <NewsDetailModal />
+            {/* Topic */}
+            <Text style={styles.topicText}>{currentFact.topic}</Text>
+
+            {/* Question */}
+            <Text style={styles.questionText}>{currentFact.question}</Text>
+
+            {/* Answer Options */}
+            <View style={styles.optionsContainer}>
+              {/* MCQ Questions */}
+              {currentFact.type === 'mcq' && currentFact.options?.map((option, index) => (
+                <TouchableOpacity
+                  key={index}
+                  style={[
+                    styles.optionButton,
+                    selectedOption === option && (isCorrect ? styles.correctOption : styles.wrongOption),
+                    showAnswer && option === currentFact.answer && styles.correctOption
+                  ]}
+                  onPress={() => !showAnswer && handleAnswer(option)}
+                  disabled={showAnswer}
+                >
+                  <Text style={[
+                    styles.optionText,
+                    selectedOption === option && styles.selectedOptionText,
+                    showAnswer && option === currentFact.answer && styles.correctOptionText
+                  ]}>
+                    {option}
+                  </Text>
+                  {showAnswer && option === currentFact.answer && (
+                    <Text style={styles.checkmark}>✓</Text>
+                  )}
+                </TouchableOpacity>
+              ))}
+
+              {/* True/False Questions */}
+              {currentFact.type === 'true-false' && (
+                <View style={styles.trueFalseContainer}>
+                  <TouchableOpacity
+                    style={[
+                      styles.trueFalseButton,
+                      styles.trueButton,
+                      selectedOption === 'true' && (isCorrect ? styles.correctOption : styles.wrongOption),
+                      showAnswer && currentFact.answer === 'true' && styles.correctOption
+                    ]}
+                    onPress={() => !showAnswer && handleAnswer(true)}
+                    disabled={showAnswer}
+                  >
+                    <Text style={styles.trueFalseText}>TRUE</Text>
+                    {showAnswer && currentFact.answer === 'true' && (
+                      <Text style={styles.checkmark}>✓</Text>
+                    )}
+                  </TouchableOpacity>
+                  
+                  <TouchableOpacity
+                    style={[
+                      styles.trueFalseButton,
+                      styles.falseButton,
+                      selectedOption === 'false' && (isCorrect ? styles.correctOption : styles.wrongOption),
+                      showAnswer && currentFact.answer === 'false' && styles.correctOption
+                    ]}
+                    onPress={() => !showAnswer && handleAnswer(false)}
+                    disabled={showAnswer}
+                  >
+                    <Text style={styles.trueFalseText}>FALSE</Text>
+                    {showAnswer && currentFact.answer === 'false' && (
+                      <Text style={styles.checkmark}>✓</Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              )}
+
+              {/* Reveal Questions */}
+              {currentFact.type === 'reveal' && (
+                <>
+                  <TouchableOpacity
+                    style={styles.revealButton}
+                    onPress={() => !showAnswer && setShowAnswer(true)}
+                    disabled={showAnswer}
+                  >
+                    <LinearGradient
+                      colors={['#8B5CF6', '#7C3AED']}
+                      style={styles.revealGradient}
+                    >
+                      <Text style={styles.revealButtonText}>
+                        {showAnswer ? currentFact.answer : 'TAP TO REVEAL ANSWER'}
+                      </Text>
+                    </LinearGradient>
+                  </TouchableOpacity>
+                  
+                  {showAnswer && (
+                    <View style={styles.revealActionButtons}>
+                      <TouchableOpacity
+                        style={[styles.actionButton, styles.wrongButton]}
+                        onPress={() => handleAnswer('wrong')}
+                      >
+                        <Text style={styles.wrongButtonText}>❌ Didn't Know</Text>
+                      </TouchableOpacity>
+                      
+                      <TouchableOpacity
+                        style={[styles.actionButton, styles.correctButton]}
+                        onPress={() => handleAnswer('correct')}
+                      >
+                        <Text style={styles.correctButtonText}>✅ Got It!</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                </>
+              )}
+            </View>
+
+            {/* Explanation */}
+            {showExplanation && (
+              <View style={styles.explanationContainer}>
+                <View style={styles.explanationHeader}>
+                  <Text style={styles.explanationTitle}>
+                    {isCorrect ? '🎉 Excellent!' : '📚 Learn More'}
+                  </Text>
+                  {isCorrect && (
+                    <Text style={styles.xpGained}>
+                      +{currentFact.difficulty === 'hard' ? 15 : currentFact.difficulty === 'medium' ? 10 : 5} XP
+                    </Text>
+                  )}
+                </View>
+                <Text style={styles.explanationText}>{currentFact.explanation}</Text>
+                <View style={styles.keywordsContainer}>
+                  {currentFact.keywords.slice(0, 3).map((keyword, index) => (
+                    <View key={index} style={styles.keywordTag}>
+                      <Text style={styles.keywordText}>{keyword}</Text>
+                    </View>
+                  ))}
+                </View>
+                <Text style={styles.sourceText}>Source: {currentFact.source}</Text>
+              </View>
+            )}
+          </LinearGradient>
+        </RNAnimated.View>
+
+        {/* Continue Button */}
+        {showAnswer && (
+          <TouchableOpacity 
+            style={styles.continueButton} 
+            onPress={() => {
+              if (currentIndex === facts.length - 1) {
+                handleCompleteSession();
+              } else {
+                nextQuestion();
+              }
+            }}
+          >
+            <LinearGradient
+              colors={isCorrect ? ['#00FF88', '#10B981'] : ['#8B5CF6', '#7C3AED']}
+              style={styles.continueGradient}
+            >
+              <Text style={styles.continueButtonText}>
+                {currentIndex === facts.length - 1 ? 'COMPLETE SESSION 🎉' : 'CONTINUE →'}
+              </Text>
+            </LinearGradient>
+          </TouchableOpacity>
+        )}
+
+        {/* Bottom Stats */}
+        <View style={styles.bottomStats}>
+          <View style={styles.statItem}>
+            <Text style={styles.statValue}>{progress.accuracy}%</Text>
+            <Text style={styles.statLabel}>Accuracy</Text>
+          </View>
+          <View style={styles.statItem}>
+            <Text style={styles.statValue}>{progress.totalXP}</Text>
+            <Text style={styles.statLabel}>Total XP</Text>
+          </View>
+          <View style={styles.statItem}>
+            <Text style={styles.statValue}>{progress.masteredTopics.length}</Text>
+            <Text style={styles.statLabel}>Mastered</Text>
+          </View>
+        </View>
       </ScrollView>
+
+      {/* Admin Panel */}
+      {isAdmin && (
+        <View style={styles.adminPanel}>
+          <TouchableOpacity style={styles.adminButton} onPress={addTodaysQuestions}>
+            <Text style={styles.adminButtonText}>➕ Add Questions</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {/* Completion Modal */}
+      {showCompletionModal && (
+        <View style={styles.modalOverlay}>
+          <View style={styles.completionModal}>
+            <LinearGradient
+              colors={['#8B5CF6', '#3B82F6']}
+              style={styles.modalGradient}
+            >
+              <Text style={styles.modalTitle}>🎉 Session Complete!</Text>
+              <Text style={styles.modalSubtitle}>Outstanding performance!</Text>
+              
+              <View style={styles.modalStats}>
+                <View style={styles.modalStatItem}>
+                  <Text style={styles.modalStatValue}>{facts.length}</Text>
+                  <Text style={styles.modalStatLabel}>Questions</Text>
+                </View>
+                <View style={styles.modalStatItem}>
+                  <Text style={styles.modalStatValue}>{progress.accuracy}%</Text>
+                  <Text style={styles.modalStatLabel}>Accuracy</Text>
+                </View>
+                <View style={styles.modalStatItem}>
+                  <Text style={styles.modalStatValue}>{progress.hearts}</Text>
+                  <Text style={styles.modalStatLabel}>Hearts Left</Text>
+                </View>
+              </View>
+
+              <View style={styles.modalButtons}>
+                <TouchableOpacity 
+                  style={[styles.modalButton, styles.modalButtonSecondary]}
+                  onPress={() => setShowCompletionModal(false)}
+                >
+                  <Text style={styles.modalButtonTextSecondary}>Done</Text>
+                </TouchableOpacity>
+                
+                <TouchableOpacity 
+                  style={[styles.modalButton, styles.modalButtonPrimary]}
+                  onPress={() => {
+                    setShowCompletionModal(false);
+                    restartSession();
+                  }}
+                >
+                  <Text style={styles.modalButtonTextPrimary}>New Session</Text>
+                </TouchableOpacity>
+              </View>
+            </LinearGradient>
+          </View>
+        </View>
+      )}
+
+      {/* Game Over Modal */}
+      {showGameOverModal && (
+        <View style={styles.modalOverlay}>
+          <View style={styles.gameOverModal}>
+            <LinearGradient
+              colors={['#EF4444', '#DC2626']}
+              style={styles.modalGradient}
+            >
+              <Text style={styles.gameOverTitle}>💔 Out of Hearts!</Text>
+              <Text style={styles.gameOverSubtitle}>Don't worry, you did great!</Text>
+              
+              <View style={styles.gameOverStats}>
+                <Text style={styles.gameOverStatsText}>
+                  📊 Session Stats:
+                </Text>
+                <Text style={styles.gameOverStatsDetail}>
+                  • Questions Answered: {currentIndex + 1}
+                </Text>
+                <Text style={styles.gameOverStatsDetail}>
+                  • Accuracy: {progress.accuracy}%
+                </Text>
+                <Text style={styles.gameOverStatsDetail}>
+                  • XP Earned: {progress.dailyXP}
+                </Text>
+              </View>
+
+              <View style={styles.heartRefillInfo}>
+                <Text style={styles.heartRefillTitle}>💖 Hearts Refill Options:</Text>
+                <Text style={styles.heartRefillText}>
+                  • Wait 2 hours for free refill
+                </Text>
+                <Text style={styles.heartRefillText}>
+                  • Watch an ad to continue now
+                </Text>
+                <Text style={styles.heartRefillText}>
+                  • Start fresh tomorrow
+                </Text>
+              </View>
+
+              <View style={styles.modalButtons}>
+                <TouchableOpacity 
+                  style={[styles.modalButton, styles.modalButtonSecondary]}
+                  onPress={() => setShowGameOverModal(false)}
+                >
+                  <Text style={styles.modalButtonTextSecondary}>Wait</Text>
+                </TouchableOpacity>
+                
+                <TouchableOpacity 
+                  style={[styles.modalButton, styles.modalButtonPrimary]}
+                  onPress={refillHearts}
+                >
+                  <Text style={styles.modalButtonTextPrimary}>Watch Ad ▶️</Text>
+                </TouchableOpacity>
+              </View>
+            </LinearGradient>
+          </View>
+        </View>
+      )}
     </SafeAreaView>
   );
-}
+};
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#0A0A0B',
   },
-  scrollView: {
-    flex: 1,
-  },
-  header: {
-    paddingHorizontal: 24,
-    paddingVertical: 20,
-  },
-  headerContent: {
-    alignItems: 'center',
-  },
-  headerTitle: {
-    fontSize: 28,
-    fontFamily: 'SpaceGrotesk-Bold',
-    color: '#FFFFFF',
-    marginBottom: 4,
-  },
-  headerSubtitle: {
-    fontSize: 16,
-    fontFamily: 'Inter-Regular',
-    color: '#9CA3AF',
-    textAlign: 'center',
-  },
-  connectionStatus: {
-    paddingHorizontal: 24,
-    marginBottom: 16,
-    alignItems: 'center',
-  },
-  connectionIndicator: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 12,
-    marginBottom: 4,
-  },
-  connectionText: {
-    fontSize: 12,
-    fontFamily: 'Inter-SemiBold',
-    color: '#10B981',
-    marginLeft: 6,
-  },
-  lastUpdateText: {
-    fontSize: 10,
-    fontFamily: 'Inter-Regular',
-    color: '#6B7280',
-  },
-  searchFilterContainer: {
-    flexDirection: 'row',
-    paddingHorizontal: 24,
-    marginBottom: 24,
-    gap: 12,
-  },
-  searchButton: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
-    borderRadius: 16,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
-  },
-  searchButtonText: {
-    fontSize: 16,
-    fontFamily: 'Inter-Regular',
-    color: '#9CA3AF',
-    marginLeft: 12,
-  },
-  filterButton: {
-    width: 48,
-    height: 48,
-    borderRadius: 16,
-    backgroundColor: 'rgba(0, 255, 136, 0.15)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(0, 255, 136, 0.3)',
-  },
-  refreshButton: {
-    width: 48,
-    height: 48,
-    borderRadius: 16,
-    backgroundColor: 'rgba(139, 92, 246, 0.15)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(139, 92, 246, 0.3)',
-  },
-  aiSummarySection: {
-    paddingHorizontal: 24,
-    marginBottom: 24,
-  },
-  aiSummaryCard: {
-    borderRadius: 20,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(139, 92, 246, 0.2)',
-  },
-  aiSummaryHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  aiSummaryTitleContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  aiSummaryTitle: {
-    fontSize: 18,
-    fontFamily: 'SpaceGrotesk-Bold',
-    color: '#FFFFFF',
-    marginLeft: 8,
-  },
-  aiSummaryPlayButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: 'rgba(139, 92, 246, 0.2)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  aiSummaryText: {
-    fontSize: 14,
-    fontFamily: 'Inter-Regular',
-    color: '#D1D5DB',
-    lineHeight: 22,
-    marginBottom: 16,
-  },
-  aiSummaryActions: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  aiActionButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(139, 92, 246, 0.1)',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(139, 92, 246, 0.3)',
-  },
-  aiActionText: {
-    fontSize: 12,
-    fontFamily: 'Inter-SemiBold',
-    color: '#8B5CF6',
-    marginLeft: 6,
-  },
-  highlightsSection: {
-    paddingHorizontal: 24,
-    marginBottom: 24,
-  },
-  sectionHeader: {
-    marginBottom: 16,
-  },
-  sectionTitleContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 4,
-  },
-  sectionTitle: {
-    fontSize: 22,
-    fontFamily: 'SpaceGrotesk-Bold',
-    color: '#FFFFFF',
-    marginLeft: 8,
-  },
-  sectionSubtitle: {
-    fontSize: 14,
-    fontFamily: 'Inter-Regular',
-    color: '#9CA3AF',
-  },
-  highlightItemCard: {
-    width: 280,
-    marginRight: 16,
-    borderRadius: 16,
-    overflow: 'hidden',
-  },
-  highlightItemGradient: {
-    padding: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(239, 68, 68, 0.3)',
-    borderRadius: 16,
-  },
-  highlightItemHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  highlightImportanceIndicator: {
-    backgroundColor: 'rgba(239, 68, 68, 0.2)',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8,
-  },
-  highlightImportanceText: {
-    fontSize: 10,
-    fontFamily: 'Inter-Bold',
-    color: '#EF4444',
-  },
-  highlightExamWeight: {
-    fontSize: 14,
-    fontFamily: 'SpaceGrotesk-Bold',
-    color: '#EF4444',
-  },
-  highlightItemTitle: {
-    fontSize: 16,
-    fontFamily: 'SpaceGrotesk-SemiBold',
-    color: '#FFFFFF',
-    marginBottom: 6,
-  },
-  highlightItemDescription: {
-    fontSize: 13,
-    fontFamily: 'Inter-Regular',
-    color: '#9CA3AF',
-    marginBottom: 12,
-  },
-  highlightItemAction: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  highlightActionText: {
-    fontSize: 13,
-    fontFamily: 'Inter-SemiBold',
-    color: '#EF4444',
-  },
-  categoryFilter: {
-    paddingHorizontal: 24,
-    marginBottom: 24,
-  },
-  categoryPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
-    marginRight: 12,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
-  },
-  categoryPillText: {
-    fontSize: 13,
-    fontFamily: 'Inter-SemiBold',
-    marginLeft: 6,
-  },
-  newsSection: {
-    paddingHorizontal: 24,
-    paddingBottom: 100,
-  },
-  newsSectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  newsSectionTitle: {
-    fontSize: 20,
-    fontFamily: 'SpaceGrotesk-Bold',
-    color: '#FFFFFF',
-  },
-  newsSectionCount: {
-    fontSize: 14,
-    fontFamily: 'Inter-Medium',
-    color: '#9CA3AF',
-  },
   loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
     alignItems: 'center',
-    paddingVertical: 40,
+  },
+  loadingTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+    marginBottom: 8,
   },
   loadingText: {
     fontSize: 16,
-    fontFamily: 'Inter-Regular',
     color: '#9CA3AF',
-    marginTop: 12,
+    marginBottom: 8,
   },
-  newsCard: {
-    marginBottom: 16,
-    borderRadius: 20,
-    overflow: 'hidden',
+  loadingSubtext: {
+    fontSize: 14,
+    color: '#6B7280',
+    fontStyle: 'italic',
   },
-  highlightCard: {
-    marginBottom: 16,
-    borderRadius: 20,
-    overflow: 'hidden',
+  header: {
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    backgroundColor: '#0A0A0B',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.05)',
   },
-  newsCardGradient: {
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
-    borderRadius: 20,
-  },
-  newsImageContainer: {
-    position: 'relative',
-    height: 200,
-  },
-  newsImage: {
-    width: '100%',
-    height: '100%',
-  },
-  importanceBadge: {
-    position: 'absolute',
-    top: 12,
-    left: 12,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8,
-  },
-  importanceBadgeText: {
-    fontSize: 10,
-    fontFamily: 'Inter-Bold',
-    color: '#FFFFFF',
-  },
-  examRelevanceScore: {
-    position: 'absolute',
-    top: 12,
-    right: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.7)',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  examRelevanceText: {
-    fontSize: 11,
-    fontFamily: 'Inter-Bold',
-    color: '#FFFFFF',
-    marginLeft: 4,
-  },
-  liveBadge: {
-    position: 'absolute',
-    bottom: 12,
-    left: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(239, 68, 68, 0.9)',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  liveDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#FFFFFF',
-    marginRight: 6,
-  },
-  liveText: {
-    fontSize: 10,
-    fontFamily: 'Inter-Bold',
-    color: '#FFFFFF',
-  },
-  newsContent: {
-    padding: 16,
-  },
-  newsHeader: {
+  headerTop: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 16,
+  },
+  headerLeft: {
+    flex: 1,
+  },
+  headerTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+  },
+  headerSubtitle: {
+    fontSize: 14,
+    color: '#8B5CF6',
+    marginTop: 2,
+  },
+  headerRight: {
+    flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 12,
+    gap: 16,
+  },
+  heartsContainer: {
+    flexDirection: 'row',
+    gap: 4,
+  },
+  heart: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  heartText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+  },
+  streakContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 107, 53, 0.2)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    shadowColor: '#FF6B35',
+  },
+  streakIcon: {
+    fontSize: 16,
+  },
+  streakText: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#FF6B35',
+    marginLeft: 4,
+  },
+  xpContainer: {
+    marginTop: 8,
+  },
+  xpBar: {
+    height: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: 4,
+    overflow: 'hidden',
+    marginBottom: 8,
+  },
+  xpFill: {
+    height: '100%',
+    borderRadius: 4,
+  },
+  xpText: {
+    fontSize: 12,
+    color: '#00FF88',
+    fontWeight: '600',
+  },
+  progressContainer: {
+    marginTop: 16,
+  },
+  progressText: {
+    fontSize: 16,
+    color: '#FFFFFF',
+    fontWeight: '600',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  progressBar: {
+    height: 6,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: 3,
+    overflow: 'hidden',
+  },
+  progressFill: {
+    height: '100%',
+    backgroundColor: '#8B5CF6',
+    borderRadius: 3,
+  },
+  scrollContainer: {
+    flex: 1,
+  },
+  scrollContent: {
+    flexGrow: 1,
+    paddingBottom: 120,
+  },
+  cardContainer: {
+    marginHorizontal: 20,
+    marginTop: 20,
+    flex: 1,
+    minHeight: height * 0.6,
+  },
+  questionCard: {
+    flex: 1,
+    borderRadius: 20,
+    padding: 24,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    minHeight: 400,
   },
   categoryBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(0, 255, 136, 0.1)',
+    alignSelf: 'flex-start',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    marginBottom: 16,
+  },
+  categoryText: {
+    fontSize: 10,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+  },
+  difficultyBadge: {
+    marginLeft: 8,
+  },
+  difficultyText: {
+    fontSize: 12,
+  },
+  topicText: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#8B5CF6',
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  questionText: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+    marginBottom: 32,
+    textAlign: 'center',
+    lineHeight: 32,
+  },
+  optionsContainer: {
+    gap: 12,
+  },
+  optionButton: {
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderWidth: 2,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: 16,
+    padding: 16,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  correctOption: {
+    backgroundColor: 'rgba(16, 185, 129, 0.2)',
+    borderColor: '#10B981',
+  },
+  wrongOption: {
+    backgroundColor: 'rgba(239, 68, 68, 0.2)',
+    borderColor: '#EF4444',
+  },
+  optionText: {
+    fontSize: 16,
+    color: '#FFFFFF',
+    fontWeight: '500',
+    flex: 1,
+  },
+  selectedOptionText: {
+    fontWeight: 'bold',
+  },
+  correctOptionText: {
+    color: '#10B981',
+    fontWeight: 'bold',
+  },
+  checkmark: {
+    fontSize: 20,
+    color: '#10B981',
+    fontWeight: 'bold',
+  },
+  trueFalseContainer: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  trueFalseButton: {
+    flex: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderWidth: 2,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: 16,
+    padding: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 60,
+  },
+  trueButton: {
+    borderColor: 'rgba(16, 185, 129, 0.3)',
+  },
+  falseButton: {
+    borderColor: 'rgba(239, 68, 68, 0.3)',
+  },
+  trueFalseText: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+  },
+  revealButton: {
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+  revealGradient: {
+    padding: 20,
+    alignItems: 'center',
+  },
+  revealButtonText: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+    textAlign: 'center',
+  },
+  revealActionButtons: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 20,
+  },
+  actionButton: {
+    flex: 1,
+    borderRadius: 16,
+    padding: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 60,
+  },
+  wrongButton: {
+    backgroundColor: 'rgba(239, 68, 68, 0.15)',
+    borderWidth: 2,
+    borderColor: 'rgba(239, 68, 68, 0.3)',
+  },
+  correctButton: {
+    backgroundColor: 'rgba(16, 185, 129, 0.15)',
+    borderWidth: 2,
+    borderColor: 'rgba(16, 185, 129, 0.3)',
+  },
+  wrongButtonText: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#EF4444',
+  },
+  correctButtonText: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#10B981',
+  },
+  explanationContainer: {
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderRadius: 16,
+    padding: 20,
+    marginTop: 24,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  explanationHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  explanationTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+  },
+  xpGained: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#00FF88',
+    backgroundColor: 'rgba(0, 255, 136, 0.2)',
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 8,
   },
-  categoryText: {
-    fontSize: 11,
-    fontFamily: 'Inter-SemiBold',
-    color: '#00FF88',
-    marginLeft: 4,
-  },
-  bookmarkButton: {
-    padding: 4,
-  },
-  newsTitle: {
-    fontSize: 18,
-    fontFamily: 'SpaceGrotesk-Bold',
-    color: '#FFFFFF',
-    lineHeight: 24,
-    marginBottom: 8,
-  },
-  newsSummary: {
+  explanationText: {
     fontSize: 14,
-    fontFamily: 'Inter-Regular',
     color: '#D1D5DB',
     lineHeight: 20,
-    marginBottom: 12,
+    marginBottom: 16,
   },
-  keyPointsPreview: {
-    backgroundColor: 'rgba(0, 255, 136, 0.05)',
-    padding: 12,
-    borderRadius: 12,
-    marginBottom: 12,
-    borderLeftWidth: 3,
-    borderLeftColor: '#00FF88',
-  },
-  keyPointsLabel: {
-    fontSize: 12,
-    fontFamily: 'Inter-Bold',
-    color: '#00FF88',
-    marginBottom: 4,
-  },
-  keyPointsText: {
-    fontSize: 13,
-    fontFamily: 'Inter-Regular',
-    color: '#D1D5DB',
-  },
-  newsMeta: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  newsMetaLeft: {
-    flexDirection: 'row',
-    gap: 16,
-    flex: 1,
-  },
-  newsMetaItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  newsMetaText: {
-    fontSize: 12,
-    fontFamily: 'Inter-Regular',
-    color: '#9CA3AF',
-    marginLeft: 4,
-  },
-  sourceText: {
-    fontSize: 11,
-    fontFamily: 'Inter-Medium',
-    color: '#8B5CF6',
-  },
-  newsActions: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  actionButton: {
-    padding: 8,
-    borderRadius: 8,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-  },
-  errorContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 24,
-  },
-  errorTitle: {
-    fontSize: 24,
-    fontFamily: 'SpaceGrotesk-Bold',
-    color: '#FFFFFF',
-    marginTop: 16,
-    marginBottom: 8,
-  },
-  errorMessage: {
-    fontSize: 16,
-    fontFamily: 'Inter-Regular',
-    color: '#9CA3AF',
-    textAlign: 'center',
-    marginBottom: 24,
-  },
-  retryButton: {
-    backgroundColor: '#8B5CF6',
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 12,
-  },
-  retryButtonText: {
-    fontSize: 16,
-    fontFamily: 'Inter-SemiBold',
-    color: '#FFFFFF',
-  },
-  modalContainer: {
-    flex: 1,
-    backgroundColor: '#0A0A0B',
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 24,
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
-  },
-  modalCloseButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  modalTitle: {
-    fontSize: 18,
-    fontFamily: 'SpaceGrotesk-Bold',
-    color: '#FFFFFF',
-  },
-  modalShareButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(0, 255, 136, 0.15)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  modalContent: {
-    flex: 1,
-  },
-  modalImage: {
-    width: '100%',
-    height: 250,
-  },
-  modalNewsContent: {
-    padding: 24,
-  },
-  modalNewsHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  modalNewsCategory: {
-    fontSize: 12,
-    fontFamily: 'Inter-Bold',
-    color: '#8B5CF6',
-  },
-  modalNewsSource: {
-    fontSize: 12,
-    fontFamily: 'Inter-Medium',
-    color: '#9CA3AF',
-  },
-  modalNewsTitle: {
-    fontSize: 24,
-    fontFamily: 'SpaceGrotesk-Bold',
-    color: '#FFFFFF',
-    lineHeight: 32,
-    marginBottom: 12,
-  },
-  modalNewsSummary: {
-    fontSize: 16,
-    fontFamily: 'Inter-Regular',
-    color: '#D1D5DB',
-    lineHeight: 24,
-    marginBottom: 24,
-  },
-  modalSection: {
-    marginBottom: 24,
-  },
-  modalSectionTitle: {
-    fontSize: 18,
-    fontFamily: 'SpaceGrotesk-Bold',
-    color: '#FFFFFF',
-    marginBottom: 12,
-  },
-  keyPointItem: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    marginBottom: 8,
-  },
-  keyPointBullet: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#00FF88',
-    marginTop: 8,
-    marginRight: 12,
-  },
-  keyPointText: {
-    flex: 1,
-    fontSize: 14,
-    fontFamily: 'Inter-Regular',
-    color: '#D1D5DB',
-    lineHeight: 20,
-  },
-  examQuestionItem: {
-    backgroundColor: 'rgba(139, 92, 246, 0.1)',
-    padding: 12,
-    borderRadius: 12,
-    marginBottom: 8,
-    borderLeftWidth: 3,
-    borderLeftColor: '#8B5CF6',
-  },
-  examQuestionText: {
-    fontSize: 14,
-    fontFamily: 'Inter-Medium',
-    color: '#FFFFFF',
-    lineHeight: 20,
-  },
-  tagsContainer: {
+  keywordsContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 8,
+    marginBottom: 12,
   },
-  tagItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(139, 92, 246, 0.1)',
+  keywordTag: {
+    backgroundColor: 'rgba(139, 92, 246, 0.2)',
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 8,
   },
-  tagText: {
-    fontSize: 12,
-    fontFamily: 'Inter-Medium',
+  keywordText: {
+    fontSize: 10,
     color: '#8B5CF6',
-    marginLeft: 4,
+    fontWeight: '600',
   },
-  modalFullContent: {
-    fontSize: 15,
-    fontFamily: 'Inter-Regular',
-    color: '#D1D5DB',
-    lineHeight: 24,
+  sourceText: {
+    fontSize: 10,
+    color: '#6B7280',
+    fontStyle: 'italic',
   },
-  sourceButton: {
-    flexDirection: 'row',
+  continueButton: {
+    marginHorizontal: 20,
+    marginTop: 20,
+    marginBottom: 20,
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+  continueGradient: {
+    padding: 16,
     alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(139, 92, 246, 0.15)',
-    paddingVertical: 12,
-    borderRadius: 12,
-    marginTop: 16,
   },
-  sourceButtonText: {
+  continueButtonText: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+  },
+  bottomStats: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    backgroundColor: 'rgba(255, 255, 255, 0.02)',
+    marginHorizontal: 20,
+    paddingVertical: 16,
+    borderRadius: 16,
+    marginBottom: 100,
+  },
+  statItem: {
+    alignItems: 'center',
+  },
+  statValue: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+  },
+  statLabel: {
+    fontSize: 10,
+    color: '#9CA3AF',
+    marginTop: 2,
+  },
+  modalOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 1000,
+  },
+  completionModal: {
+    width: width - 40,
+    borderRadius: 20,
+    overflow: 'hidden',
+  },
+  modalGradient: {
+    padding: 32,
+    alignItems: 'center',
+  },
+  modalTitle: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  modalSubtitle: {
+    fontSize: 16,
+    color: 'rgba(255, 255, 255, 0.8)',
+    marginBottom: 32,
+    textAlign: 'center',
+  },
+  modalStats: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    width: '100%',
+    marginBottom: 32,
+  },
+  modalStatItem: {
+    alignItems: 'center',
+  },
+  modalStatValue: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+  },
+  modalStatLabel: {
+    fontSize: 12,
+    color: 'rgba(255, 255, 255, 0.8)',
+    marginTop: 4,
+  },
+  modalButtons: {
+    flexDirection: 'row',
+    gap: 16,
+    width: '100%',
+  },
+  modalButton: {
+    flex: 1,
+    paddingVertical: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  modalButtonPrimary: {
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    borderWidth: 2,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+  },
+  modalButtonSecondary: {
+    backgroundColor: 'rgba(0, 0, 0, 0.2)',
+    borderWidth: 2,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+  },
+  modalButtonTextPrimary: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+  },
+  modalButtonTextSecondary: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: 'rgba(255, 255, 255, 0.8)',
+  },
+  gameOverModal: {
+    width: width - 40,
+    borderRadius: 20,
+    overflow: 'hidden',
+  },
+  gameOverTitle: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  gameOverSubtitle: {
+    fontSize: 16,
+    color: 'rgba(255, 255, 255, 0.9)',
+    marginBottom: 24,
+    textAlign: 'center',
+  },
+  gameOverStats: {
+    backgroundColor: 'rgba(0, 0, 0, 0.2)',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 24,
+    width: '100%',
+  },
+  gameOverStatsText: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+    marginBottom: 8,
+  },
+  gameOverStatsDetail: {
     fontSize: 14,
-    fontFamily: 'Inter-SemiBold',
-    color: '#8B5CF6',
-    marginRight: 8,
+    color: 'rgba(255, 255, 255, 0.9)',
+    marginBottom: 4,
+  },
+  heartRefillInfo: {
+    backgroundColor: 'rgba(0, 0, 0, 0.2)',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 24,
+    width: '100%',
+  },
+  heartRefillTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+    marginBottom: 8,
+  },
+  heartRefillText: {
+    fontSize: 14,
+    color: 'rgba(255, 255, 255, 0.9)',
+    marginBottom: 4,
+  },
+  adminPanel: {
+    position: 'absolute',
+    bottom: 20,
+    right: 20,
+    zIndex: 1001,
+  },
+  adminButton: {
+    backgroundColor: '#FF6B35',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 25,
+    shadowColor: '#FF6B35',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  adminButtonText: {
+    color: '#FFFFFF',
+    fontWeight: 'bold',
+    fontSize: 14,
   },
 });
+
+export default NewsScreen;
