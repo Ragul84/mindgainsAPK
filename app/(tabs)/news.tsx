@@ -52,7 +52,7 @@ const NewsScreen = () => {
   const { stats, updateCurrentAffairsStats, loading: statsLoading } = useUserStats();
   
   // Game State
-  const [facts, setFacts] = useState<CurrentAffairsFact[]>([] );
+  const [facts, setFacts] = useState<CurrentAffairsFact[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [showAnswer, setShowAnswer] = useState(false);
   const [selectedOption, setSelectedOption] = useState<string | null>(null);
@@ -470,10 +470,13 @@ const NewsScreen = () => {
         streak: correct ? prev.streak : 0,
       };
 
+      // Check for game over condition
       if (!correct && newHearts === 0) {
+        console.log('💔 Game Over - No hearts left!');
+        // Show game over modal immediately
         setTimeout(() => {
           setShowGameOverModal(true);
-        }, 2000);
+        }, 1500); // Small delay to let user see the heart animation
       }
 
       return newProgress;
@@ -869,12 +872,107 @@ const NewsScreen = () => {
       {/* Modals remain absolutely positioned above everything */}
       {showCompletionModal && (
         <View style={styles.modalOverlay}>
-          {/* ... Completion Modal content ... */}
+          <View style={styles.completionModal}>
+            <LinearGradient
+              colors={['#8B5CF6', '#3B82F6']}
+              style={styles.modalGradient}
+            >
+              <Text style={styles.modalTitle}>🎉 Session Complete!</Text>
+              <Text style={styles.modalSubtitle}>Outstanding performance!</Text>
+              
+              <View style={styles.modalStats}>
+                <View style={styles.modalStatItem}>
+                  <Text style={styles.modalStatValue}>{facts.length}</Text>
+                  <Text style={styles.modalStatLabel}>Questions</Text>
+                </View>
+                <View style={styles.modalStatItem}>
+                  <Text style={styles.modalStatValue}>{progress.accuracy}%</Text>
+                  <Text style={styles.modalStatLabel}>Accuracy</Text>
+                </View>
+                <View style={styles.modalStatItem}>
+                  <Text style={styles.modalStatValue}>{progress.hearts}</Text>
+                  <Text style={styles.modalStatLabel}>Hearts Left</Text>
+                </View>
+              </View>
+
+              <View style={styles.modalButtons}>
+                <TouchableOpacity 
+                  style={[styles.modalButton, styles.modalButtonSecondary]}
+                  onPress={() => setShowCompletionModal(false)}
+                >
+                  <Text style={styles.modalButtonTextSecondary}>Done</Text>
+                </TouchableOpacity>
+                
+                <TouchableOpacity 
+                  style={[styles.modalButton, styles.modalButtonPrimary]}
+                  onPress={() => {
+                    setShowCompletionModal(false);
+                    restartSession();
+                  }}
+                >
+                  <Text style={styles.modalButtonTextPrimary}>New Session</Text>
+                </TouchableOpacity>
+              </View>
+            </LinearGradient>
+          </View>
         </View>
       )}
+
       {showGameOverModal && (
         <View style={styles.modalOverlay}>
-          {/* ... Game Over Modal content ... */}
+          <View style={styles.gameOverModal}>
+            <LinearGradient
+              colors={['#EF4444', '#DC2626']}
+              style={styles.modalGradient}
+            >
+              <Text style={styles.gameOverTitle}>💔 Out of Hearts!</Text>
+              <Text style={styles.gameOverSubtitle}>Don't worry, you did great!</Text>
+              
+              <View style={styles.gameOverStats}>
+                <Text style={styles.gameOverStatsText}>
+                  📊 Session Stats:
+                </Text>
+                <Text style={styles.gameOverStatsDetail}>
+                  • Questions Answered: {currentIndex + 1}
+                </Text>
+                <Text style={styles.gameOverStatsDetail}>
+                  • Accuracy: {progress.accuracy}%
+                </Text>
+                <Text style={styles.gameOverStatsDetail}>
+                  • XP Earned: {progress.dailyXP}
+                </Text>
+              </View>
+
+              <View style={styles.heartRefillInfo}>
+                <Text style={styles.heartRefillTitle}>💖 Hearts Refill Options:</Text>
+                <Text style={styles.heartRefillText}>
+                  • Wait 2 hours for free refill
+                </Text>
+                <Text style={styles.heartRefillText}>
+                  • Watch an ad to continue now
+                </Text>
+                <Text style={styles.heartRefillText}>
+                  • Start fresh tomorrow
+                </Text>
+              </View>
+
+              <View style={styles.modalButtons}>
+                <TouchableOpacity 
+                  style={[styles.modalButton, styles.modalButtonSecondary]}
+                  onPress={() => setShowGameOverModal(false)}
+                >
+                  <Text style={styles.modalButtonTextSecondary}>Wait</Text>
+                </TouchableOpacity>
+                
+                <TouchableOpacity 
+                  style={[styles.modalButton, styles.modalButtonPrimary]}
+                  onPress={refillHearts}
+                >
+                  <Text style={styles.modalButtonTextPrimary}>Watch Ad ▶️</Text>
+                </TouchableOpacity>
+              </View>
+            </LinearGradient>
+          </View>
         </View>
       )}
     </SafeAreaView>
