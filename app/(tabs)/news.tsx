@@ -580,7 +580,7 @@ const NewsScreen = () => {
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#0A0A0B" />
       
-      {/* Header */}
+      {/* Fixed Header */}
       <View style={styles.header}>
         <View style={styles.headerTop}>
           <View style={styles.headerLeft}>
@@ -652,12 +652,13 @@ const NewsScreen = () => {
         </View>
       </View>
 
-      {/* Scrollable Content */}
+      {/* Main Scrollable Content */}
       <ScrollView 
-        style={styles.scrollContainer}
-        contentContainerStyle={styles.scrollContent}
+        style={styles.mainScrollView}
+        contentContainerStyle={styles.mainScrollContent}
         showsVerticalScrollIndicator={false}
         bounces={true}
+        keyboardShouldPersistTaps="handled"
       >
         {/* Main Question Card */}
         <RNAnimated.View style={[
@@ -854,6 +855,9 @@ const NewsScreen = () => {
             <Text style={styles.statLabel}>Mastered</Text>
           </View>
         </View>
+        
+        {/* Extra padding at bottom to ensure scrollability */}
+        <View style={styles.bottomPadding} />
       </ScrollView>
 
       {/* Admin Panel */}
@@ -985,22 +989,25 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    padding: 20,
   },
   loadingTitle: {
     fontSize: 24,
     fontWeight: 'bold',
     color: '#FFFFFF',
-    marginBottom: 8,
+    marginBottom: 16,
   },
   loadingText: {
     fontSize: 16,
     color: '#9CA3AF',
-    marginBottom: 8,
+    marginBottom: 12,
+    textAlign: 'center',
   },
   loadingSubtext: {
     fontSize: 14,
     color: '#6B7280',
     fontStyle: 'italic',
+    textAlign: 'center',
   },
   header: {
     paddingHorizontal: 20,
@@ -1008,6 +1015,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#0A0A0B',
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(255, 255, 255, 0.05)',
+    zIndex: 10,
   },
   headerTop: {
     flexDirection: 'row',
@@ -1106,26 +1114,23 @@ const styles = StyleSheet.create({
     backgroundColor: '#8B5CF6',
     borderRadius: 3,
   },
-  scrollContainer: {
+  mainScrollView: {
     flex: 1,
   },
-  scrollContent: {
-    flexGrow: 1,
-    paddingBottom: 120,
+  mainScrollContent: {
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 120, // Extra padding at bottom for better scrolling
   },
   cardContainer: {
-    marginHorizontal: 20,
-    marginTop: 20,
-    flex: 1,
-    minHeight: height * 0.6,
+    width: '100%',
+    marginBottom: 20,
   },
   questionCard: {
-    flex: 1,
     borderRadius: 20,
     padding: 24,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.1)',
-    minHeight: 400,
   },
   categoryBadge: {
     flexDirection: 'row',
@@ -1331,9 +1336,7 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
   },
   continueButton: {
-    marginHorizontal: 20,
-    marginTop: 20,
-    marginBottom: 20,
+    marginVertical: 20,
     borderRadius: 16,
     overflow: 'hidden',
   },
@@ -1350,10 +1353,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-around',
     backgroundColor: 'rgba(255, 255, 255, 0.02)',
-    marginHorizontal: 20,
     paddingVertical: 16,
     borderRadius: 16,
-    marginBottom: 100,
+    marginBottom: 20,
   },
   statItem: {
     alignItems: 'center',
@@ -1368,6 +1370,9 @@ const styles = StyleSheet.create({
     color: '#9CA3AF',
     marginTop: 2,
   },
+  bottomPadding: {
+    height: 80, // Extra padding at the bottom
+  },
   modalOverlay: {
     position: 'absolute',
     top: 0,
@@ -1381,6 +1386,7 @@ const styles = StyleSheet.create({
   },
   completionModal: {
     width: width - 40,
+    maxWidth: 400,
     borderRadius: 20,
     overflow: 'hidden',
   },
@@ -1453,6 +1459,7 @@ const styles = StyleSheet.create({
   },
   gameOverModal: {
     width: width - 40,
+    maxWidth: 400,
     borderRadius: 20,
     overflow: 'hidden',
   },
@@ -1507,7 +1514,7 @@ const styles = StyleSheet.create({
   },
   adminPanel: {
     position: 'absolute',
-    bottom: 20,
+    bottom: 100, // Adjusted to be above tab bar
     right: 20,
     zIndex: 1001,
   },
@@ -1526,6 +1533,12 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontWeight: 'bold',
     fontSize: 14,
+  },
+  scrollContainer: {
+    flex: 1,
+  },
+  scrollContent: {
+    paddingBottom: 120, // Extra padding to account for tab bar
   },
 });
 
