@@ -596,76 +596,6 @@ const NewsScreen = () => {
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#0A0A0B" />
       
-      {/* Minimal Header */}
-      <View style={styles.header}>
-        <View style={styles.headerLeft}>
-          <Text style={styles.headerTitle}>Daily Current Affairs</Text>
-          <Text style={styles.headerDate}>
-            📅 {new Date().toLocaleDateString('en-IN', { 
-              weekday: 'long', 
-              year: 'numeric', 
-              month: 'long', 
-              day: 'numeric' 
-            })}
-          </Text>
-        </View>
-        <View style={styles.headerRight}>
-          {/* Hearts */}
-          <RNAnimated.View style={[styles.heartsContainer, { transform: [{ scale: heartScale }] }]}>
-            {Array.from({ length: 3 }, (_, i) => (
-              <View key={i} style={[
-                styles.heart,
-                { backgroundColor: i < progress.hearts ? '#EF4444' : '#374151' }
-              ]}>
-                <Text style={styles.heartText}>♥</Text>
-              </View>
-            ))}
-          </RNAnimated.View>
-          
-          {/* Streak */}
-          <RNAnimated.View style={[
-            styles.streakContainer,
-            {
-              shadowOpacity: RNAnimated.multiply(streakGlow, 0.5),
-              shadowRadius: RNAnimated.multiply(streakGlow, 10),
-            }
-          ]}>
-            <Text style={styles.streakIcon}>🔥</Text>
-            <Text style={styles.streakText}>{progress.streak}</Text>
-          </RNAnimated.View>
-        </View>
-      </View>
-
-      {/* Progress Summary Area */}
-      <View style={styles.progressSummary}>
-        <View style={styles.xpProgress}>
-          <View style={styles.xpBar}>
-            <LinearGradient
-              colors={['#00FF88', '#10B981']}
-              style={[styles.xpFill, { width: `${(progress.dailyXP % 100)}%` }]}
-            />
-          </View>
-          <RNAnimated.Text style={[
-            styles.xpText,
-            { transform: [{ scale: xpPulse }] }
-          ]}>
-            {progress.dailyXP} XP today • {100 - (progress.dailyXP % 100)} to next level
-          </RNAnimated.Text>
-        </View>
-
-        <View style={styles.questionProgress}>
-          <Text style={styles.questionProgressText}>
-            Question {currentIndex + 1} of {facts.length}
-          </Text>
-          <View style={styles.progressBar}>
-            <View style={[
-              styles.progressFill,
-              { width: `${((currentIndex + 1) / facts.length) * 100}%` }
-            ]} />
-          </View>
-        </View>
-      </View>
-
       {/* Main Scrollable Content */}
       <ScrollView 
         style={styles.mainScrollView}
@@ -674,6 +604,77 @@ const NewsScreen = () => {
         bounces={true}
         keyboardShouldPersistTaps="handled"
       >
+        {/* Infos (formerly in top bar, now part of scrollable content) */}
+        <View style={styles.infoSection}>
+          <View style={styles.infoTopRow}>
+            <View style={styles.infoLeft}>
+              <Text style={styles.infoTitle}>Daily Current Affairs</Text>
+              <Text style={styles.infoDate}>
+                📅 {new Date().toLocaleDateString('en-IN', { 
+                  weekday: 'long', 
+                  year: 'numeric', 
+                  month: 'long', 
+                  day: 'numeric' 
+                })}
+              </Text>
+            </View>
+            <View style={styles.infoRight}>
+              {/* Hearts */}
+              <RNAnimated.View style={[styles.heartsContainer, { transform: [{ scale: heartScale }] }]}>
+                {Array.from({ length: 3 }, (_, i) => (
+                  <View key={i} style={[
+                    styles.heart,
+                    { backgroundColor: i < progress.hearts ? '#EF4444' : '#374151' }
+                  ]}>
+                    <Text style={styles.heartText}>♥</Text>
+                  </View>
+                ))}
+              </RNAnimated.View>
+              
+              {/* Streak */}
+              <RNAnimated.View style={[
+                styles.streakContainer,
+                {
+                  shadowOpacity: RNAnimated.multiply(streakGlow, 0.5),
+                  shadowRadius: RNAnimated.multiply(streakGlow, 10),
+                }
+              ]}>
+                <Text style={styles.streakIcon}>🔥</Text>
+                <Text style={styles.streakText}>{progress.streak}</Text>
+              </RNAnimated.View>
+            </View>
+          </View>
+
+          {/* XP Progress Bar */}
+          <View style={styles.xpProgress}>
+            <View style={styles.xpBar}>
+              <LinearGradient
+                colors={['#00FF88', '#10B981']}
+                style={[styles.xpFill, { width: `${(progress.dailyXP % 100)}%` }]}
+              />
+            </View>
+            <RNAnimated.Text style={[
+              styles.xpText,
+              { transform: [{ scale: xpPulse }] }
+            ]}>
+              {progress.dailyXP} XP today • {100 - (progress.dailyXP % 100)} to next level
+            </RNAnimated.Text>
+          </View>
+
+          {/* Question Progress Indicator */}
+          <View style={styles.questionProgress}>
+            <Text style={styles.questionProgressText}>
+              Question {currentIndex + 1} of {facts.length}
+            </Text>
+            <View style={styles.progressBar}>
+              <View style={[
+                styles.progressFill,
+                { width: `${((currentIndex + 1) / facts.length) * 100}%` }
+              ]} />
+            </View>
+          </View>
+        </View>
+
         {/* Main Question Card */}
         <RNAnimated.View style={[
           styles.cardContainer,
@@ -919,110 +920,106 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
     textAlign: 'center',
   },
-  // --- Restructured Header ---
-  header: {
+  // --- New Info Section (formerly header) ---
+  infoSection: {
     paddingHorizontal: 20,
-    paddingVertical: 12, // Slightly more padding than before, but less than original
-    backgroundColor: '#0A0A0B',
+    paddingVertical: 15, // Adjusted padding
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(255, 255, 255, 0.05)',
+    marginBottom: 20, // Space before the card
+  },
+  infoTopRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    zIndex: 10,
+    marginBottom: 10,
   },
-  headerLeft: {
+  infoLeft: {
     flex: 1,
   },
-  headerTitle: {
-    fontSize: 20, // Slightly larger than prev suggestion, smaller than original
+  infoTitle: {
+    fontSize: 22, // Slightly larger than previous minimal header
     fontWeight: 'bold',
     color: '#FFFFFF',
   },
-  headerDate: { // Renamed from headerSubtitle for clarity
-    fontSize: 12,
+  infoDate: {
+    fontSize: 13,
     color: '#8B5CF6',
     marginTop: 2,
   },
-  headerRight: {
+  infoRight: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: 15, // Space between hearts and streak
   },
   heartsContainer: {
     flexDirection: 'row',
     gap: 4,
   },
   heart: {
-    width: 20, // Smaller hearts
-    height: 20,
-    borderRadius: 10,
+    width: 22, // Slightly larger hearts
+    height: 22,
+    borderRadius: 11,
     alignItems: 'center',
     justifyContent: 'center',
   },
   heartText: {
     color: '#FFFFFF',
-    fontSize: 10, // Smaller text
+    fontSize: 11,
   },
   streakContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: 'rgba(255, 107, 53, 0.2)',
-    paddingHorizontal: 6, // Smaller padding
-    paddingVertical: 3,
-    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
     shadowColor: '#FF6B35',
   },
   streakIcon: {
-    fontSize: 14, // Smaller icon
+    fontSize: 16,
   },
   streakText: {
-    fontSize: 12, // Smaller text
+    fontSize: 14,
     fontWeight: 'bold',
     color: '#FF6B35',
-    marginLeft: 3,
+    marginLeft: 4,
   },
 
-  // --- New Progress Summary Area ---
-  progressSummary: {
-    backgroundColor: '#0A0A0B',
-    paddingHorizontal: 20,
-    paddingBottom: 10, // Padding bottom to separate from card
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.05)',
-    zIndex: 9, // Below header
-  },
+  // --- XP Progress Bar ---
   xpProgress: {
-    marginBottom: 8,
+    marginBottom: 15, // Space below XP bar
   },
   xpBar: {
-    height: 4, // Thinner bar
+    height: 5,
     backgroundColor: 'rgba(255, 255, 255, 0.1)',
     borderRadius: 2,
     overflow: 'hidden',
-    marginBottom: 4,
+    marginBottom: 5,
   },
   xpFill: {
     height: '100%',
     borderRadius: 2,
   },
   xpText: {
-    fontSize: 10,
+    fontSize: 11,
     color: '#00FF88',
     fontWeight: '600',
   },
+  
+  // --- Question Progress Indicator ---
   questionProgress: {
-    marginTop: 8,
+    marginTop: 10,
   },
-  questionProgressText: { // Renamed from progressText
-    fontSize: 13,
+  questionProgressText: {
+    fontSize: 14,
     color: '#FFFFFF',
     fontWeight: '600',
-    marginBottom: 4,
+    marginBottom: 6,
     textAlign: 'center',
   },
   progressBar: {
-    height: 3, // Even thinner bar
+    height: 4,
     backgroundColor: 'rgba(255, 255, 255, 0.1)',
     borderRadius: 2,
     overflow: 'hidden',
@@ -1038,15 +1035,14 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   mainScrollContent: {
-    paddingHorizontal: 20,
-    paddingTop: 20, // Padding from the progress summary
+    paddingTop: 0, // No fixed header, so content starts at the top of SafeAreaView
+    paddingHorizontal: 0, // No horizontal padding directly on contentContainer; infoSection/cardContainer handle it
     paddingBottom: 120, // Space for bottom tab bar and FABs
   },
   cardContainer: {
-    width: '100%',
+    width: '90%', // Slightly less width than before for more padding on sides
+    alignSelf: 'center', // Center the card
     marginBottom: 20,
-    // Center the card horizontally if needed
-    alignSelf: 'center', 
     maxWidth: 500, // Optional: Limit card width on larger screens
   },
   questionCard: {
@@ -1142,7 +1138,6 @@ const styles = StyleSheet.create({
     padding: 16,
     alignItems: 'center',
     justifyContent: 'center',
-    minHeight: 60,
   },
   trueButton: {
     borderColor: 'rgba(16, 185, 129, 0.3)',
@@ -1180,7 +1175,6 @@ const styles = StyleSheet.create({
     padding: 16,
     alignItems: 'center',
     justifyContent: 'center',
-    minHeight: 60,
   },
   wrongButton: {
     backgroundColor: 'rgba(239, 68, 68, 0.15)',
