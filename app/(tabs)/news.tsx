@@ -1011,7 +1011,7 @@ const styles = StyleSheet.create({
   },
   header: {
     paddingHorizontal: 20,
-    paddingVertical: 16,
+    paddingVertical: 8, /* Reduced from 16 to 8 */
     backgroundColor: '#0A0A0B',
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(255, 255, 255, 0.05)',
@@ -1021,25 +1021,25 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    marginBottom: 16,
+    marginBottom: 4, /* Reduced from 16 to 4 */
   },
   headerLeft: {
     flex: 1,
   },
   headerTitle: {
-    fontSize: 24,
+    fontSize: 20, /* Reduced from 24 to 20 */
     fontWeight: 'bold',
     color: '#FFFFFF',
   },
   headerSubtitle: {
-    fontSize: 14,
+    fontSize: 12, /* Reduced from 14 to 12 */
     color: '#8B5CF6',
     marginTop: 2,
   },
   headerRight: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 16,
+    gap: 8, /* Reduced from 16 to 8 */
   },
   heartsContainer: {
     flexDirection: 'row',
@@ -1075,52 +1075,52 @@ const styles = StyleSheet.create({
     marginLeft: 4,
   },
   xpContainer: {
-    marginTop: 8,
+    marginTop: 4, /* Reduced from 8 to 4 */
   },
   xpBar: {
-    height: 8,
+    height: 5, /* Reduced from 8 to 5 */
     backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    borderRadius: 4,
+    borderRadius: 2, /* Adjusted to new height */
     overflow: 'hidden',
-    marginBottom: 8,
+    marginBottom: 4, /* Reduced from 8 to 4 */
   },
   xpFill: {
     height: '100%',
-    borderRadius: 4,
+    borderRadius: 2, /* Adjusted to new height */
   },
   xpText: {
-    fontSize: 12,
+    fontSize: 10, /* Reduced from 12 to 10 */
     color: '#00FF88',
     fontWeight: '600',
   },
   progressContainer: {
-    marginTop: 16,
+    marginTop: 8, /* Reduced from 16 to 8 */
   },
   progressText: {
-    fontSize: 16,
+    fontSize: 14, /* Reduced from 16 to 14 */
     color: '#FFFFFF',
     fontWeight: '600',
-    marginBottom: 8,
+    marginBottom: 4, /* Reduced from 8 to 4 */
     textAlign: 'center',
   },
   progressBar: {
-    height: 6,
+    height: 4, /* Reduced from 6 to 4 */
     backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    borderRadius: 3,
+    borderRadius: 2, /* Adjusted to new height */
     overflow: 'hidden',
   },
   progressFill: {
     height: '100%',
     backgroundColor: '#8B5CF6',
-    borderRadius: 3,
+    borderRadius: 2,
   },
   mainScrollView: {
     flex: 1,
   },
   mainScrollContent: {
     paddingHorizontal: 20,
-    paddingTop: 20,
-    paddingBottom: 120, // Extra padding at bottom for better scrolling
+    paddingTop: 0, /* Ensure no extra top padding here, as header is fixed */
+    paddingBottom: 120, 
   },
   cardContainer: {
     width: '100%',
@@ -1371,7 +1371,7 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   bottomPadding: {
-    height: 80, // Extra padding at the bottom
+    height: 80, 
   },
   modalOverlay: {
     position: 'absolute',
@@ -1514,7 +1514,7 @@ const styles = StyleSheet.create({
   },
   adminPanel: {
     position: 'absolute',
-    bottom: 100, // Adjusted to be above tab bar
+    bottom: 100, 
     right: 20,
     zIndex: 1001,
   },
@@ -1538,7 +1538,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingBottom: 120, // Extra padding to account for tab bar
+    paddingBottom: 120, 
   },
 });
 
